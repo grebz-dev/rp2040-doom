@@ -122,16 +122,21 @@ static byte *AutoAllocMemory(int *size, int default_ram, int min_ram)
 #if DOOM_SMALL
 //        *size = (384+64) * 1024;
 #if DOOM_TINY
+#if defined(FCPICO_ZONE_KB)
+        *size = FCPICO_ZONE_KB * 1024;
+#else
 #if PICO_ON_DEVICE
 #if PICODOOM_RENDER_BABY || FCPICO
-        // Leave room for the indexed frame and cartridge stream buffers.
-        *size = 160 *1024;
+        // Leave room for staged indexed video, both cartridge streams and
+        // a non-zone heap margin on RP2350 (checked by check_device_ram.py).
+        *size = 128 *1024;
 #else
         *size = 40 * 1024;
 #endif
 #else
 //        *size = 384 *1024;
         *size = 256 *1024;
+#endif
 #endif
 #endif
 #endif

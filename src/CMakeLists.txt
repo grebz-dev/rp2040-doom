@@ -693,6 +693,7 @@ if (FCPICO_SUPERBUILD)
         fcpico_tiny_settings fcapu fcvideo)
     if(PICO_ON_DEVICE)
         target_link_libraries(doom_tiny_fcpico PRIVATE fcbus_device)
+        target_compile_definitions(doom_tiny_fcpico PRIVATE FCPICO_ZONE_KB=128)
     else()
         target_link_libraries(doom_tiny_fcpico PRIVATE
             fcbus_host host_shim Threads::Threads)
