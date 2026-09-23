@@ -1507,7 +1507,7 @@ static void draw_visplanes(int16_t fr_list) {
             if (bit == 8) {
                 vp++;
                 bit = 0;
-                if (*vp == 255 && *p == plane_num) {
+                if (vp < vp_end && *vp == 255 && *p == plane_num) {
                     uint fourx = plane_num * 0x1010101;
                     assert(!(((uintptr_t) p) & 0x3));
                     while (vp < vp_end && *vp == 255 && ((uint32_t *) p)[0] == fourx && ((uint32_t *) p)[1] == fourx) {

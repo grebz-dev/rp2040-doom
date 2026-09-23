@@ -77,3 +77,8 @@ void I_PicoSoundSetMusicGenerator(void (*generator)(audio_buffer_t *buffer))
 }
 void I_PicoSoundFade(bool in) { (void)in; }
 bool I_PicoSoundFading(void) { return false; }
+
+void I_OPL_DevMessages(char *result, size_t result_len)
+{
+    if (result_len != 0) result[0] = '\0';
+}

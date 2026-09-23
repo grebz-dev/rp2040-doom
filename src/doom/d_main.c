@@ -512,7 +512,7 @@ void D_RunFrame()
 #else
         do {
             D_Display();
-#if FCPICO && !PICO_ON_DEVICE
+#if FCPICO
             I_FinishUpdate();
 #endif
         } while (wipestate);

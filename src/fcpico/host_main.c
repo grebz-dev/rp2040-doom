@@ -3,6 +3,12 @@
 
 #include "i_system.h"
 #include "m_argv.h"
+#include "fcpico_video_sink.h"
+#include "doom/m_menu.h"
+#include "d_loop.h"
+#include "w_wad.h"
+#include "z_zone.h"
+#include <png.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,12 +21,58 @@ const unsigned char *fcpico_host_whx;
 static const char *dump_8bit_dir;
 static unsigned frame_limit;
 static unsigned frame_count;
+static unsigned menu_at;
+static unsigned char composed_frame[320 * 200];
 
-void fcpico_host_frame(const unsigned char *pixels, size_t length)
+static void write_png(const char *path)
 {
-    extern volatile unsigned char wipe_min;
-    /* No scanline consumer exists on host; complete a wipe at frame boundaries. */
-    wipe_min = 200;
+    const uint8_t *playpal = W_CacheLumpNum(W_GetNumForName("PLAYPAL"), PU_STATIC);
+    png_color colors[256];
+    png_bytep rows[200];
+    png_structp png;
+    png_infop info;
+    FILE *output = fopen(path, "wb");
+    if (output == NULL) {
+        fprintf(stderr, "cannot open %s\n", path);
+        exit(1);
+    }
+    png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    info = png != NULL ? png_create_info_struct(png) : NULL;
+    if (info == NULL || setjmp(png_jmpbuf(png))) {
+        fprintf(stderr, "cannot encode %s\n", path);
+        fclose(output);
+        exit(1);
+    }
+    for (int i = 0; i < 256; ++i) {
+        colors[i].red = playpal[i * 3];
+        colors[i].green = playpal[i * 3 + 1];
+        colors[i].blue = playpal[i * 3 + 2];
+    }
+    for (int y = 0; y < 200; ++y) rows[y] = composed_frame + y * 320;
+    png_init_io(png, output);
+    png_set_IHDR(png, info, 320, 200, 8, PNG_COLOR_TYPE_PALETTE,
+                 PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+                 PNG_FILTER_TYPE_DEFAULT);
+    png_set_PLTE(png, info, colors, 256);
+    png_write_info(png, info);
+    png_write_image(png, rows);
+    png_write_end(png, NULL);
+    png_destroy_write_struct(&png, &info);
+    if (fclose(output) != 0) {
+        fprintf(stderr, "cannot close %s\n", path);
+        exit(1);
+    }
+}
+
+void fcvideo_line_sink(int y, const uint8_t *line320)
+{
+    memcpy(composed_frame + y * 320, line320, 320);
+}
+
+void fcvideo_frame_end(int palette_num, int video_type)
+{
+    (void)palette_num;
+    (void)video_type;
     if (dump_8bit_dir != NULL) {
         char path[1024];
         FILE *output;
@@ -30,13 +82,23 @@ void fcpico_host_frame(const unsigned char *pixels, size_t length)
             exit(1);
         }
         output = fopen(path, "wb");
-        if (output == NULL || fwrite(pixels, 1, length, output) != length ||
+        if (output == NULL || fwrite(composed_frame, 1, sizeof(composed_frame), output) !=
+                              sizeof(composed_frame) ||
             fclose(output) != 0) {
             fprintf(stderr, "cannot write %s\n", path);
             exit(1);
         }
+        if (frame_count % 100 == 0) {
+            if (snprintf(path, sizeof(path), "%s/frame%06u.png", dump_8bit_dir,
+                         frame_count) >= (int)sizeof(path)) {
+                fputs("PNG path too long\n", stderr);
+                exit(1);
+            }
+            write_png(path);
+        }
     }
     ++frame_count;
+    if (frame_count == menu_at) M_StartControlPanel();
     if (frame_count == frame_limit) {
         printf("host frames=%u\n", frame_count);
         exit(0);
@@ -46,7 +108,8 @@ void fcpico_host_frame(const unsigned char *pixels, size_t length)
 static void usage(const char *program)
 {
     fprintf(stderr, "usage: %s --whx FILE [--demo N] [--frames N] [--lockstep] "
-                    "[--dump-8bit DIR] [--dump-stream DIR] [--pads FILE]\n", program);
+                    "[--dump-8bit DIR] [--menu-at N] [--dump-stream DIR] "
+                    "[--pads FILE]\n", program);
 }
 
 int main(int argc, char **argv)
@@ -80,6 +143,9 @@ int main(int argc, char **argv)
             frame_limit = (unsigned)parsed_frames;
         } else if (strcmp(argv[i], "--dump-8bit") == 0 && i + 1 < argc) {
             dump_8bit_dir = argv[++i];
+        } else if (strcmp(argv[i], "--menu-at") == 0 && i + 1 < argc) {
+            menu_at = (unsigned)atoi(argv[++i]);
+            if (menu_at == 0) { usage(argv[0]); return 2; }
         } else if ((strcmp(argv[i], "--dump-stream") == 0 ||
                     strcmp(argv[i], "--pads") == 0) && i + 1 < argc) {
             fprintf(stderr, "%s is not wired into the host runner yet\n", argv[i]);
@@ -126,7 +192,6 @@ int main(int argc, char **argv)
     }
     myargc = engine_argc;
     myargv = engine_argv;
-    extern int singletics;
     singletics = 1;
     I_Init();
     D_DoomMain();

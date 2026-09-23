@@ -9,9 +9,10 @@ console's APU. There is no VGA, no I2S, no USB host and no I2C network on that t
 
 The P0-T2 device skeleton now configures under `FCPICO_SUPERBUILD` and links as
 `fcpico_doom.elf` without `pico-extras`. The SDL-free host target runs DEMO1 for a fixed
-number of frames and can dump the renderer's 320x168 indexed view; a 600-frame replay
-is deterministic. Full 320x200 composition, stream output, controller playback, cartridge
-bus bring-up and hardware boot are still open.
+number of frames and dumps composed 320x200 indexed frames, plus PNG previews every
+hundredth frame. The 600-frame replay is deterministic. The device-side line sink is
+still a no-op; stream conversion/publication, controller playback, cartridge bus bring-up
+and hardware boot remain open.
 Work items are referenced by the task IDs of `fc-pico/doom/plan/10-workplan.md`.
 
 ## Build integration (P0-T2)
