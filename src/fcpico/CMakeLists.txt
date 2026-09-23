@@ -21,4 +21,8 @@ target_include_directories(common_fcpico INTERFACE
 target_compile_definitions(common_fcpico INTERFACE
     NO_USE_MOUSE=1 PICO_USE_SW_SPIN_LOCKS=0 PICO_USE_STACK_GUARDS=0)
 target_link_libraries(common_fcpico INTERFACE
-    pico_stdlib pico_multicore hardware_interp hardware_dma hardware_flash)
+    pico_stdlib pico_multicore pico_runtime)
+if(PICO_ON_DEVICE)
+    target_link_libraries(common_fcpico INTERFACE
+        hardware_interp hardware_dma hardware_flash)
+endif()

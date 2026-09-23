@@ -52,6 +52,10 @@ void I_FinishUpdate(void)
 {
     if (sem_available(&render_frame_ready)) {
         sem_acquire_blocking(&render_frame_ready);
+#if !PICO_ON_DEVICE
+        extern void fcpico_host_frame(const uint8_t *pixels, size_t length);
+        fcpico_host_frame(frame_buffer[next_frame_index], sizeof(frame_buffer[0]));
+#endif
         sem_release(&display_frame_freed);
     }
 }

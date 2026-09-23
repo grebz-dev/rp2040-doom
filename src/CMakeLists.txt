@@ -29,7 +29,11 @@ target_sources(common INTERFACE
     m_argv.c             m_argv.h
     m_misc.c             m_misc.h)
 if (FCPICO_SUPERBUILD)
-    target_sources(common INTERFACE fcpico/i_main_fcpico.c)
+    if(PICO_ON_DEVICE)
+        target_sources(common INTERFACE fcpico/i_main_fcpico.c)
+    else()
+        target_sources(common INTERFACE fcpico/host_main.c)
+    endif()
 else()
     target_sources(common INTERFACE i_main.c)
 endif()
@@ -501,7 +505,7 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
 
     target_link_libraries(doom_tiny${SUFFIX} PRIVATE small_doom_common)
 
-    if (PICO_SDK)
+    if (PICO_ON_DEVICE)
         pico_set_float_implementation(doom_tiny${SUFFIX} none)
         pico_set_double_implementation(doom_tiny${SUFFIX} none)
         pico_add_extra_outputs(doom_tiny${SUFFIX})
@@ -541,7 +545,7 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         SAVE_COMPRESSED=1
         LOAD_COMPRESSED=1
 
-        NO_USE_ARGS=1
+        NO_USE_ARGS=$<NOT:$<AND:$<BOOL:${FCPICO_SUPERBUILD}>,$<NOT:$<BOOL:${PICO_ON_DEVICE}>>>>
         NO_USE_SAVE_CONFIG=1
         NO_USE_FLOAT=1
 
@@ -686,12 +690,22 @@ if (FCPICO_SUPERBUILD)
     target_compile_definitions(fcpico_tiny_settings INTERFACE WHD_SUPER_TINY=1)
     add_doom_tiny(_fcpico render_newhope)
     target_link_libraries(doom_tiny_fcpico PRIVATE
-        fcpico_tiny_settings fcbus_device fcapu fcvideo)
+        fcpico_tiny_settings fcapu fcvideo)
+    if(PICO_ON_DEVICE)
+        target_link_libraries(doom_tiny_fcpico PRIVATE fcbus_device)
+    else()
+        target_link_libraries(doom_tiny_fcpico PRIVATE
+            fcbus_host host_shim Threads::Threads)
+    endif()
     target_compile_definitions(doom_tiny_fcpico PRIVATE
         FCPICO=1 NO_USE_ENDDOOM=1 USE_PICO_NET=0 USB_SUPPORT=0
         TINY_WAD_ADDR=0x10080000
         FCPICO_AUTO_SAVENAME=1)
-    set_target_properties(doom_tiny_fcpico PROPERTIES OUTPUT_NAME fcpico_doom)
-    pico_enable_stdio_usb(doom_tiny_fcpico 1)
-    pico_enable_stdio_uart(doom_tiny_fcpico 0)
+    if(PICO_ON_DEVICE)
+        set_target_properties(doom_tiny_fcpico PROPERTIES OUTPUT_NAME fcpico_doom)
+        pico_enable_stdio_usb(doom_tiny_fcpico 1)
+        pico_enable_stdio_uart(doom_tiny_fcpico 0)
+    else()
+        set_target_properties(doom_tiny_fcpico PROPERTIES OUTPUT_NAME fcpico_doom_host)
+    endif()
 endif()

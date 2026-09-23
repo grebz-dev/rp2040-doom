@@ -3,6 +3,7 @@
 
 #include "config.h"
 #include "i_sound.h"
+#include <stddef.h>
 #include "i_picosound.h"
 
 uint8_t restart_song_state;

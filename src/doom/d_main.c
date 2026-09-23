@@ -512,6 +512,9 @@ void D_RunFrame()
 #else
         do {
             D_Display();
+#if FCPICO && !PICO_ON_DEVICE
+            I_FinishUpdate();
+#endif
         } while (wipestate);
 #endif
     }
@@ -1745,6 +1748,9 @@ void D_DoomMain (void)
 
         free(uc_filename);
 
+#if USE_WHD
+        M_StringCopy(demolumpname, myargv[p + 1], sizeof(demolumpname));
+#else
         if (D_AddFile(file))
         {
             M_StringCopy(demolumpname, lumpinfo[numlumps - 1]->name,
@@ -1758,6 +1764,7 @@ void D_DoomMain (void)
 
             M_StringCopy(demolumpname, myargv[p + 1], sizeof(demolumpname));
         }
+#endif
 
         printf("Playing demo %s.\n", file);
     }
@@ -1992,7 +1999,7 @@ void D_DoomMain (void)
     }
 #endif
 
-#if !NO_USE_ARGS
+#if !NO_USE_ARGS && !DOOM_TINY
     // Undocumented:
     // Invoked by setup to test the controls.
 
@@ -2125,4 +2132,3 @@ void D_DoomMain (void)
 
     D_DoomLoop ();  // never returns
 }
-

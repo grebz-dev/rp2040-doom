@@ -2793,6 +2793,10 @@ void pd_end_frame(int wipe_start) {
     }
 #endif
     sem_release(&core0_done);
+#if FCPICO && !PICO_ON_DEVICE
+    // The SDL-free host runner executes the render barrier in lockstep.
+    pd_core1_loop();
+#endif
     sem_acquire_blocking(&core1_done);
     draw_fuzz_columns();
     DEBUG_PINS_CLR(full_render, 1);

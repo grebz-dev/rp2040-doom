@@ -8,8 +8,10 @@ stream (256x240, 2 bits per pixel plus a per-16x16-block palette) and plays soun
 console's APU. There is no VGA, no I2S, no USB host and no I2C network on that target.
 
 The P0-T2 device skeleton now configures under `FCPICO_SUPERBUILD` and links as
-`fcpico_doom.elf` without `pico-extras`. Its video, input and sound adapters are stubs;
-the frame sink, cartridge bus bring-up, host runner and hardware boot test remain open.
+`fcpico_doom.elf` without `pico-extras`. The SDL-free host target runs DEMO1 for a fixed
+number of frames and can dump the renderer's 320x168 indexed view; a 600-frame replay
+is deterministic. Full 320x200 composition, stream output, controller playback, cartridge
+bus bring-up and hardware boot are still open.
 Work items are referenced by the task IDs of `fc-pico/doom/plan/10-workplan.md`.
 
 ## Build integration (P0-T2)
