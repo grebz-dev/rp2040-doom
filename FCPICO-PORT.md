@@ -7,8 +7,10 @@ target: an RP2350 inside a Famicom cartridge that feeds the console's PPU a patt
 stream (256x240, 2 bits per pixel plus a per-16x16-block palette) and plays sound on the
 console's APU. There is no VGA, no I2S, no USB host and no I2C network on that target.
 
-Nothing here is implemented yet. Work items are referenced by the task IDs of
-`fc-pico/doom/plan/10-workplan.md`.
+The P0-T2 device skeleton now configures under `FCPICO_SUPERBUILD` and links as
+`fcpico_doom.elf` without `pico-extras`. Its video, input and sound adapters are stubs;
+the frame sink, cartridge bus bring-up, host runner and hardware boot test remain open.
+Work items are referenced by the task IDs of `fc-pico/doom/plan/10-workplan.md`.
 
 ## Build integration (P0-T2)
 

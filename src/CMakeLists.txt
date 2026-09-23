@@ -15,7 +15,9 @@ endforeach()
 # Common source files used by absolutely everything:
 cmake_policy(SET CMP0076 NEW)
 
-if (NOT PICO_SDK)
+if (FCPICO_SUPERBUILD)
+    set(I_PLATFORM fcpico)
+elseif (NOT PICO_SDK)
     set(I_PLATFORM sdl)
 else()
     set(I_PLATFORM pico)
@@ -23,10 +25,14 @@ endif()
 
 add_library(common INTERFACE)
 target_sources(common INTERFACE
-    i_main.c
     i_system.h
     m_argv.c             m_argv.h
     m_misc.c             m_misc.h)
+if (FCPICO_SUPERBUILD)
+    target_sources(common INTERFACE fcpico/i_main_fcpico.c)
+else()
+    target_sources(common INTERFACE i_main.c)
+endif()
 
 target_compile_definitions(common INTERFACE
         #HACK_FINALE_E1M1=1
@@ -40,7 +46,11 @@ if (NOT PICO_SDK)
             i_system.c
     )
 else()
-    add_subdirectory(pico)
+    if (FCPICO_SUPERBUILD)
+        add_subdirectory(fcpico)
+    else()
+        add_subdirectory(pico)
+    endif()
 endif()
 
 target_link_libraries(common INTERFACE common_${I_PLATFORM})
@@ -119,10 +129,12 @@ target_sources(game INTERFACE
     w_merge.c           w_merge.h
     z_zone.c            z_zone.h
 
-    i_oplmusic.c
     i_sound.c
 
 )
+if (NOT FCPICO_SUPERBUILD)
+    target_sources(game INTERFACE i_oplmusic.c)
+endif()
 
 if (NOT PICO_SDK)
     add_library(game_sdl INTERFACE)
@@ -160,6 +172,9 @@ if (NOT PICO_SDK)
         )
 else()
     add_library(game_pico INTERFACE)
+    if (FCPICO_SUPERBUILD)
+        add_library(game_fcpico INTERFACE)
+    endif()
 endif()
 
 target_link_libraries(game INTERFACE game_${I_PLATFORM})
@@ -168,7 +183,10 @@ if(MSVC)
          "../win32/win_opendir.c" "../win32/win_opendir.h")
 endif()
 
-target_link_libraries(game INTERFACE common opl)
+target_link_libraries(game INTERFACE common)
+if (NOT FCPICO_SUPERBUILD)
+    target_link_libraries(game INTERFACE opl)
+endif()
 
 add_library(game_deh INTERFACE)
 target_sources(game_deh INTERFACE
@@ -500,7 +518,7 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
 
         #NO_DRAW_MENU=1
         # SDK minimilization
-        PICO_TIME_DEFAULT_ALARM_POOL_DISABLED=1
+        $<$<NOT:$<BOOL:${FCPICO_SUPERBUILD}>>:PICO_TIME_DEFAULT_ALARM_POOL_DISABLED=1>
         PICO_TIME_DEFAULT_ALARM_POOL_MAX_TIMERS=1
         PICO_DISABLE_SHARED_IRQ_HANDLERS=1
         PICO_USE_OPTIMISTIC_SBRK=1
@@ -510,7 +528,7 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         USE_DIRECT_MIDI_LUMP=1
 
         NO_USE_NET=1 # standard networking
-        USE_PICO_NET=1
+        $<$<NOT:$<BOOL:${FCPICO_SUPERBUILD}>>:USE_PICO_NET=1>
         # for vgaboard
         PICO_DEFAULT_I2C=1
         PICO_DEFAULT_I2C_SDA_PIN=18
@@ -566,7 +584,8 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         PICO_DEBUG_MALLOC=1
         EMU8950_NO_RATECONV=1
 
-        PICO_CORE1_STACK_SIZE=0x4f8
+        $<$<BOOL:${FCPICO_SUPERBUILD}>:PICO_CORE1_STACK_SIZE=0x1000>
+        $<$<NOT:$<BOOL:${FCPICO_SUPERBUILD}>>:PICO_CORE1_STACK_SIZE=0x4f8>
 
         NO_IERROR=1
     )
@@ -626,7 +645,7 @@ else()
     )
 endif()
 
-if (PICO_SDK)
+if (PICO_SDK AND NOT FCPICO_SUPERBUILD)
     add_doom_tiny("" render_newhope)
     add_library(tiny_settings INTERFACE)
     target_compile_definitions(tiny_settings INTERFACE
@@ -662,4 +681,17 @@ if (PICO_SDK)
     endif()
 endif()
 
-
+if (FCPICO_SUPERBUILD)
+    add_library(fcpico_tiny_settings INTERFACE)
+    target_compile_definitions(fcpico_tiny_settings INTERFACE WHD_SUPER_TINY=1)
+    add_doom_tiny(_fcpico render_newhope)
+    target_link_libraries(doom_tiny_fcpico PRIVATE
+        fcpico_tiny_settings fcbus_device fcapu fcvideo)
+    target_compile_definitions(doom_tiny_fcpico PRIVATE
+        FCPICO=1 NO_USE_ENDDOOM=1 USE_PICO_NET=0 USB_SUPPORT=0
+        TINY_WAD_ADDR=0x10080000
+        FCPICO_AUTO_SAVENAME=1)
+    set_target_properties(doom_tiny_fcpico PROPERTIES OUTPUT_NAME fcpico_doom)
+    pico_enable_stdio_usb(doom_tiny_fcpico 1)
+    pico_enable_stdio_uart(doom_tiny_fcpico 0)
+endif()

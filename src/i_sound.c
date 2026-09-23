@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if PICO_BUILD
+#if PICO_BUILD && !FCPICO
 #include "i_picosound.h"
 #endif
 
@@ -90,7 +90,12 @@ extern music_module_t music_sdl_module;
 extern const music_module_t music_opl_module;
 extern music_module_t music_pack_module;
 #if PICO_BUILD
+#if FCPICO
+extern sound_module_t sound_fcpico_module;
+extern const music_module_t music_fcpico_module;
+#else
 extern sound_module_t sound_pico_module;
+#endif
 #endif
 
 // For OPL module:
@@ -124,7 +129,11 @@ static int snd_mport = 0;
 static sound_module_t *sound_modules[] =
 {
 #if PICO_BUILD
+#if FCPICO
+    &sound_fcpico_module,
+#else
     &sound_pico_module,
+#endif
 #else
     &sound_sdl_module,
     &sound_pcsound_module,
@@ -136,10 +145,14 @@ static sound_module_t *sound_modules[] =
 
 static const music_module_t *music_modules[] =
 {
+#if FCPICO
+    &music_fcpico_module,
+#else
 #if !PICO_BUILD
     &music_sdl_module,
 #endif
     &music_opl_module,
+#endif
     NULL,
 };
 

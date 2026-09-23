@@ -1204,9 +1204,11 @@ void M_DrawOptions(void)
 		      W_CacheLumpName(DEH_String(detailNames[detailLevel]),
 			              PU_CACHE));
 #else
+#if NET_MENU
     // "Game" for Network
     V_DrawPatchDirect(OptionsDef.x + 105, OptionsDef.y + LINEHEIGHT * networkgame,
                       VPATCH_HANDLE(VPATCH_NAME(M_GAME)));
+#endif
 
 #endif
 
@@ -2630,4 +2632,3 @@ void M_Init (void)
     opldev = M_CheckParm("-opldev") > 0;
 #endif
 }
-

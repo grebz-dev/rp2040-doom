@@ -123,8 +123,8 @@ static byte *AutoAllocMemory(int *size, int default_ram, int min_ram)
 //        *size = (384+64) * 1024;
 #if DOOM_TINY
 #if PICO_ON_DEVICE
-#if PICODOOM_RENDER_BABY
-        // todo temp since we put the buffers here
+#if PICODOOM_RENDER_BABY || FCPICO
+        // Leave room for the indexed frame and cartridge stream buffers.
         *size = 160 *1024;
 #else
         *size = 40 * 1024;
@@ -470,7 +470,9 @@ void __attribute((noreturn)) I_Quit (void)
 #if USE_PICO_NET
     piconet_stop();
 #endif
+#if !NO_USE_ENDDOOM
     D_Endoom();
+#endif
     I_StopSong();
     while (!sem_available(&display_frame_freed)) {
         I_UpdateSound();
