@@ -7,6 +7,7 @@
 #include "w_wad.h"
 #include "z_zone.h"
 #include "pico/stdlib.h"
+#include "pico/bootrom.h"
 #include "hardware/sync.h"
 
 #include <stdio.h>
@@ -28,17 +29,69 @@ static uint32_t dropped_frames;
 static uint32_t conversion_max_us;
 static uint64_t conversion_total_us;
 
+void fcpico_video_device_poll_bootsel(void)
+{
+    static char line[16];
+    static size_t length;
+    static bool overflow;
+    int ch;
+
+    while ((ch = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
+        if (ch == '\r' || ch == '\n') {
+            if (!overflow && length == 7 && memcmp(line, "bootsel", 7) == 0) {
+                reset_usb_boot(0, 0);
+            }
+            length = 0;
+            overflow = false;
+        } else if (ch == '\b' || ch == 127) {
+            if (length != 0) --length;
+        } else if (ch >= 32 && ch < 127) {
+            if (length < sizeof line) line[length++] = (char)ch;
+            else overflow = true;
+        }
+    }
+}
+
 void fcpico_video_device_init(void)
 {
     if (fcpico_bootrom_length != FCBUS_ROM_INES_HDR + FCBUS_ROM_PRG_BYTES) {
-        panic("invalid tutorial boot ROM length");
+        panic("invalid Doom boot ROM length");
     }
     const fcbus_config_t config = {
         .rom_image = fcpico_bootrom + FCBUS_ROM_INES_HDR,
-        .proto_default = FCBUS_PROTO_V1,
+        .proto_default = FCBUS_PROTO_V2,
     };
     if (!fcbus_device_init(&bus, &config)) panic("cartridge bus init failed");
 }
+
+#if FCPICO_DIAGNOSTIC_ENGINE_DELAY
+void fcpico_video_device_diag_tick(void)
+{
+    static uint32_t last_us;
+    uint32_t now = time_us_32();
+    if (now - last_us < 2000000u) return;
+    last_us = now;
+
+    uint32_t saved = save_and_disable_interrupts();
+    fcbus_stats_t stats = *fcbus_device_stats(&bus);
+    fcbus_proto_t proto = bus.core.proto;
+    fcbus_state_t state = bus.core.state;
+    bool pending = bus.core.publish_pending;
+    uint32_t raw_count = bus.diag_raw_read_count;
+    restore_interrupts(saved);
+
+    printf("[DEBUG-hr3] bus state=%u proto=%u init=%lu hb=%lu count=%lu raw=%lu "
+           "stops=%lu resyncs=%lu timeouts=%lu errors=%lu "
+           "ready=%u converted=%lu dropped=%lu pending=%u\n",
+           (unsigned)state, (unsigned)proto, (unsigned long)stats.init_events,
+           (unsigned long)stats.frames, (unsigned long)stats.last_count,
+           (unsigned long)raw_count,
+           (unsigned long)stats.dma_stops, (unsigned long)stats.resyncs,
+           (unsigned long)stats.hb_timeouts, (unsigned long)stats.proto_errors,
+           (unsigned)converter_ready, (unsigned long)converted_frames,
+           (unsigned long)dropped_frames, (unsigned)pending);
+}
+#endif
 
 void fcvideo_line_sink(int y, const uint8_t *line320)
 {
@@ -58,6 +111,7 @@ void fcvideo_line_sink(int y, const uint8_t *line320)
 void fcvideo_frame_end(int palette_num, int video_type)
 {
     (void)video_type;
+    fcpico_video_device_poll_bootsel();
     fcbus_device_poll(&bus);
     if (!converter_ready) return;
     if (!fcbus_device_back_is_free(&bus)) {
@@ -82,7 +136,8 @@ void fcvideo_frame_end(int palette_num, int video_type)
     uint32_t init_events = fcbus_device_stats(&bus)->init_events;
     if (init_events != init_seen) {
         init_seen = init_events;
-        fcbus_core_request_data_mode(&bus.core);
+        /* v2 carries palette and attributes in every mailbox, so there is
+         * no blocking v1 bulk transfer to request on console init. */
     }
     fcbus_core_palette(&bus.core, palette_sets[palette_num]);
     fcbus_core_attr_table(&bus.core, attributes);

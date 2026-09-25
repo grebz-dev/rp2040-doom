@@ -268,6 +268,9 @@ void I_FinishUpdate(void)
         compose_frame();
         sem_release(&display_frame_freed);
     }
+#if PICO_ON_DEVICE && FCPICO_DIAGNOSTIC_ENGINE_DELAY
+    fcpico_video_device_diag_tick();
+#endif
 }
 void I_ReadScreen(pixel_t *scr)
 {

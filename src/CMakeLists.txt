@@ -686,9 +686,22 @@ if (PICO_SDK AND NOT FCPICO_SUPERBUILD)
 endif()
 
 if (FCPICO_SUPERBUILD)
+    option(FCPICO_DIAGNOSTIC_NO_ENGINE
+        "Start USB and the cartridge bus without starting Doom" OFF)
+    option(FCPICO_DIAGNOSTIC_ENGINE_DELAY
+        "Wait for USB serial before starting Doom" OFF)
+    if(FCPICO_DIAGNOSTIC_NO_ENGINE AND FCPICO_DIAGNOSTIC_ENGINE_DELAY)
+        message(FATAL_ERROR "Choose only one FC PICO diagnostic mode")
+    endif()
     add_library(fcpico_tiny_settings INTERFACE)
     target_compile_definitions(fcpico_tiny_settings INTERFACE WHD_SUPER_TINY=1)
     add_doom_tiny(_fcpico render_newhope)
+    if(PICO_ON_DEVICE)
+        # fcvideo_build_tables() uses double precision when deriving the PLAYPAL
+        # lookup table. The shared tiny target disables it, which panics on the
+        # first rendered frame.
+        pico_set_double_implementation(doom_tiny_fcpico pico)
+    endif()
     target_link_libraries(doom_tiny_fcpico PRIVATE
         fcpico_tiny_settings fcapu fcvideo)
     if(PICO_ON_DEVICE)
@@ -704,6 +717,12 @@ if (FCPICO_SUPERBUILD)
         FCPICO_AUTO_SAVENAME=1)
     if(PICO_ON_DEVICE)
         set_target_properties(doom_tiny_fcpico PROPERTIES OUTPUT_NAME fcpico_doom)
+        if(FCPICO_DIAGNOSTIC_NO_ENGINE)
+            target_compile_definitions(doom_tiny_fcpico PRIVATE FCPICO_DIAGNOSTIC_NO_ENGINE=1)
+        endif()
+        if(FCPICO_DIAGNOSTIC_ENGINE_DELAY)
+            target_compile_definitions(doom_tiny_fcpico PRIVATE FCPICO_DIAGNOSTIC_ENGINE_DELAY=1)
+        endif()
         pico_enable_stdio_usb(doom_tiny_fcpico 1)
         pico_enable_stdio_uart(doom_tiny_fcpico 0)
     else()

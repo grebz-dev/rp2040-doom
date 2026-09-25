@@ -463,6 +463,10 @@ boolean D_GrabMouseCallback(void)
 //
 void D_RunFrame()
 {
+#if FCPICO && FCPICO_DIAGNOSTIC_ENGINE_DELAY
+    static boolean diag_first_frame = true;
+    if (diag_first_frame) printf("[DEBUG-hr3] D_RunFrame entered\n");
+#endif
 #if !DOOM_TINY
     int nowtime;
     int tics;
@@ -492,6 +496,12 @@ void D_RunFrame()
     I_StartFrame ();
 
     TryRunTics (); // will run at least one tic
+#if FCPICO && FCPICO_DIAGNOSTIC_ENGINE_DELAY
+    if (diag_first_frame) {
+        printf("[DEBUG-hr3] TryRunTics returned\n");
+        diag_first_frame = false;
+    }
+#endif
 
     S_UpdateSounds (players[consoleplayer].mo);// move positional sounds
 
