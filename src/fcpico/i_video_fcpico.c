@@ -288,7 +288,6 @@ void I_InitWindowTitle(void) {}
 void I_InitWindowIcon(void) {}
 void I_GraphicsCheckCommandLine(void) {}
 void I_StartFrame(void) {}
-void I_StartTic(void) {}
 void I_EnableLoadingDisk(int xoffs, int yoffs) { (void)xoffs; (void)yoffs; }
 void I_GetWindowPosition(int *x, int *y, int w, int h)
 {

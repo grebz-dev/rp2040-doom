@@ -6,6 +6,7 @@
 #include "fcpico_video_sink.h"
 #include "fcvideo.h"
 #include "doom/m_menu.h"
+#include "doom/doomstat.h"
 #include "d_loop.h"
 #include "w_wad.h"
 #include "z_zone.h"
@@ -32,6 +33,32 @@ static uint8_t stream_palettes[FCVIDEO_PALETTE_SET_COUNT][MBX_PAL_LEN];
 static uint8_t stream_frame[VRAM_BUF_BYTES_V2];
 static uint8_t stream_attr[MBX_ATTR_LEN];
 static bool stream_initialized;
+static FILE *pads_file;
+static bool pad_supplied;
+
+bool fcpico_read_pad_frame(uint8_t *pad1)
+{
+    if (pads_file == NULL || pad_supplied) return false;
+    pad_supplied = true;
+    char line[80];
+    if (fgets(line, sizeof line, pads_file) == NULL) {
+        *pad1 = 0;
+        return true;
+    }
+    char *end;
+    unsigned long value = strtoul(line, &end, 0);
+    if (end == line || value > 255) {
+        fputs("invalid --pads line; expected one numeric pad byte per tic\n", stderr);
+        exit(2);
+    }
+    while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') ++end;
+    if (*end != '\0') {
+        fputs("invalid --pads line; expected one numeric pad byte per tic\n", stderr);
+        exit(2);
+    }
+    *pad1 = (uint8_t)value;
+    return true;
+}
 
 static void write_bytes(const char *path, const void *data, size_t size)
 {
@@ -98,6 +125,7 @@ void fcvideo_line_sink(int y, const uint8_t *line320)
 
 void fcvideo_frame_end(int palette_num, int video_type)
 {
+    pad_supplied = false;
     (void)video_type;
     if (dump_8bit_dir != NULL) {
         char path[1024];
@@ -145,6 +173,10 @@ void fcvideo_frame_end(int palette_num, int video_type)
     ++frame_count;
     if (frame_count == menu_at) M_StartControlPanel();
     if (frame_count == frame_limit) {
+        if (players[consoleplayer].mo != NULL) {
+            printf("player x=%ld y=%ld\n", (long)players[consoleplayer].mo->xy.x,
+                   (long)players[consoleplayer].mo->xy.y);
+        }
         printf("host frames=%u\n", frame_count);
         exit(0);
     }
@@ -154,7 +186,7 @@ static void usage(const char *program)
 {
     fprintf(stderr, "usage: %s --whx FILE [--demo N] [--frames N] [--lockstep] "
                     "[--dump-8bit DIR] [--menu-at N] [--dump-stream DIR] "
-                    "[--pads FILE]\n", program);
+                    "[--pads FILE] [--warp EPISODE MAP]\n", program);
 }
 
 int main(int argc, char **argv)
@@ -165,10 +197,13 @@ int main(int argc, char **argv)
     unsigned char *data;
     int i;
     int demo = 0;
+    int warp_episode = 0;
+    int warp_map = 0;
     char *number_end;
     unsigned long parsed_frames;
     char demo_name[8];
-    char *engine_argv[4];
+    char warp_episode_arg[4], warp_map_arg[4];
+    char *engine_argv[7];
     int engine_argc = 1;
 
     for (i = 1; i < argc; ++i) {
@@ -194,14 +229,23 @@ int main(int argc, char **argv)
             menu_at = (unsigned)atoi(argv[++i]);
             if (menu_at == 0) { usage(argv[0]); return 2; }
         } else if (strcmp(argv[i], "--pads") == 0 && i + 1 < argc) {
-            fprintf(stderr, "%s is not wired into the host runner yet\n", argv[i]);
-            return 2;
+            pads_file = fopen(argv[++i], "r");
+            if (pads_file == NULL) {
+                fprintf(stderr, "cannot read pads %s: %s\n", argv[i], strerror(errno));
+                return 2;
+            }
+        } else if (strcmp(argv[i], "--warp") == 0 && i + 2 < argc) {
+            warp_episode = atoi(argv[++i]);
+            warp_map = atoi(argv[++i]);
+            if (warp_episode < 1 || warp_episode > 4 || warp_map < 1 || warp_map > 9) {
+                usage(argv[0]); return 2;
+            }
         } else if (strcmp(argv[i], "--lockstep") != 0) {
             usage(argv[0]);
             return 2;
         }
     }
-    if (whx_path == NULL || frame_limit == 0) {
+    if (whx_path == NULL || frame_limit == 0 || (demo && warp_episode)) {
         usage(argv[0]);
         return 2;
     }
@@ -239,6 +283,13 @@ int main(int argc, char **argv)
         snprintf(demo_name, sizeof(demo_name), "DEMO%d", demo);
         engine_argv[engine_argc++] = "-playdemo";
         engine_argv[engine_argc++] = demo_name;
+    }
+    if (warp_episode != 0) {
+        snprintf(warp_episode_arg, sizeof warp_episode_arg, "%d", warp_episode);
+        snprintf(warp_map_arg, sizeof warp_map_arg, "%d", warp_map);
+        engine_argv[engine_argc++] = "-warp";
+        engine_argv[engine_argc++] = warp_episode_arg;
+        engine_argv[engine_argc++] = warp_map_arg;
     }
     myargc = engine_argc;
     myargv = engine_argv;

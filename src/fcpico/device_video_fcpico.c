@@ -29,6 +29,11 @@ static uint32_t dropped_frames;
 static uint32_t conversion_max_us;
 static uint64_t conversion_total_us;
 
+bool fcpico_read_pad_frame(uint8_t *pad1)
+{
+    return fcbus_device_pop_pad_frame(&bus, pad1);
+}
+
 void fcpico_video_device_poll_bootsel(void)
 {
     static char line[16];
