@@ -24,6 +24,7 @@ static const char *dump_8bit_dir;
 static const char *dump_stream_dir;
 static unsigned frame_limit;
 static unsigned frame_count;
+static unsigned use_frames;
 static unsigned menu_at;
 static unsigned char composed_frame[320 * 200];
 static fcvideo_t stream_video;
@@ -125,6 +126,7 @@ void fcvideo_line_sink(int y, const uint8_t *line320)
 
 void fcvideo_frame_end(int palette_num, int video_type)
 {
+    if (players[consoleplayer].cmd.buttons & BT_USE) ++use_frames;
     pad_supplied = false;
     (void)video_type;
     if (dump_8bit_dir != NULL) {
@@ -178,6 +180,7 @@ void fcvideo_frame_end(int palette_num, int video_type)
                    (long)players[consoleplayer].mo->xy.y);
         }
         printf("host frames=%u\n", frame_count);
+        if (pads_file != NULL) printf("use frames=%u\n", use_frames);
         exit(0);
     }
 }
