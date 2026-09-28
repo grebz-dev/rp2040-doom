@@ -200,6 +200,23 @@ vpatchname_t skullName[2] = {VPATCH_NAME(M_SKULL1), VPATCH_NAME(M_SKULL2)};
 
 // current menudef
 menu_t*	currentMenu;                          
+extern menu_t MainDef, EpiDef, NewDef, OptionsDef, SoundDef;
+
+int M_NativeMenuId(void)
+{
+    if (!menuactive || messageToPrint) return 0;
+    if (currentMenu == &MainDef) return 1;
+    if (currentMenu == &EpiDef) return 2;
+    if (currentMenu == &NewDef) return 3;
+    if (currentMenu == &OptionsDef) return 4;
+    if (currentMenu == &SoundDef) return 5;
+    return 0;
+}
+
+int M_NativeMenuSelection(void)
+{
+    return menuactive && itemOn >= 0 ? itemOn : 0;
+}
 //
 // PROTOTYPES
 //
@@ -2463,6 +2480,14 @@ void M_Drawer (void)
 
     if (currentMenu->routine)
 	currentMenu->routine();         // call Draw routine
+
+    // Native FCPico menu sprites replace these label patches and the skull.
+    // Keep the menu routine above: it draws titles, sliders, and option values.
+#if FCPICO
+    boolean native_menu = M_NativeMenuId() != 0;
+#else
+    boolean native_menu = false;
+#endif
     
     // DRAW MENU
     x = currentMenu->x;
@@ -2471,18 +2496,21 @@ void M_Drawer (void)
 
     for (i=0;i<max;i++)
     {
+        if (!native_menu)
+        {
 #if !USE_WHD
-        name = DEH_String(currentMenu->menuitems[i].name);
+	    name = DEH_String(currentMenu->menuitems[i].name);
 
-	if (name[0])
-	{
-	    V_DrawPatchDirect (x, y, W_CacheLumpName(name, PU_CACHE));
-	}
+	    if (name[0])
+	    {
+	        V_DrawPatchDirect (x, y, W_CacheLumpName(name, PU_CACHE));
+	    }
 #else
-        if (currentMenu->menuitems[i].name) {
-            V_DrawPatchDirect (x, y, currentMenu->menuitems[i].name);
-        }
+	    if (currentMenu->menuitems[i].name) {
+	        V_DrawPatchDirect (x, y, currentMenu->menuitems[i].name);
+	    }
 #endif
+	}
 	y += LINEHEIGHT;
     }
 
@@ -2495,7 +2523,7 @@ void M_Drawer (void)
         if (!oldinhelpscreens) return;
     }
 #endif
-    if (x >= 0)
+    if (x >= 0 && !native_menu)
         V_DrawPatchDirect(x + SKULLXOFF, currentMenu->y - 5 + itemOn*LINEHEIGHT,
                              VPATCH_HANDLE(skullName[whichSkull]));
     #endif

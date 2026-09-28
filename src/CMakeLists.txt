@@ -29,6 +29,7 @@ target_sources(common INTERFACE
     m_argv.c             m_argv.h
     m_misc.c             m_misc.h)
 if (FCPICO_SUPERBUILD)
+    target_sources(common INTERFACE fcpico/ui_capture.c)
     if(PICO_ON_DEVICE)
         target_sources(common INTERFACE fcpico/i_main_fcpico.c)
     else()

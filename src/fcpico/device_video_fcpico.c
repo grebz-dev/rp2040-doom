@@ -4,6 +4,7 @@
 #include "fcpico_video_sink.h"
 #include "fcvideo.h"
 #include "fcbus_device.h"
+#include "ui_capture.h"
 #include "w_wad.h"
 #include "z_zone.h"
 #include "pico/stdlib.h"
@@ -28,6 +29,11 @@ static uint32_t converted_frames;
 static uint32_t dropped_frames;
 static uint32_t conversion_max_us;
 static uint64_t conversion_total_us;
+static uint8_t ui_generation;
+static uint8_t last_ui_packet[MBX_UI_LEN];
+static bool have_ui_packet;
+static uint8_t native_text_sent[NATIVE_TEXT_TILES];
+static bool native_text_ready;
 
 bool fcpico_read_pad_frame(uint8_t *pad1)
 {
@@ -124,28 +130,87 @@ void fcvideo_frame_end(int palette_num, int video_type)
         return;
     }
     if (palette_num < 0 || palette_num >= FCVIDEO_PALETTE_SET_COUNT) palette_num = 0;
-    fcvideo_set_palette(&converter, palette_sets[palette_num]);
     bool reset_hysteresis = converted_frames == 0 ||
                             fcbus_device_stats(&bus)->init_events != init_seen;
+    uint32_t proto_lock = save_and_disable_interrupts();
+    fcbus_proto_t frame_proto = bus.core.proto;
+    restore_interrupts(proto_lock);
+    fcui_status_t status;
+    fcpico_ui_capture(&status, ui_generation);
+    bool native_status = frame_proto == FCBUS_PROTO_V4 &&
+        (status.flags & FCUI_FLAG_STATUS_VISIBLE);
+    uint8_t frame_palette[MBX_PAL_LEN];
+    memcpy(frame_palette, palette_sets[palette_num], sizeof frame_palette);
+    if (native_status) {
+        frame_palette[12] = 0x0F;
+        frame_palette[13] = 0x00;
+        frame_palette[14] = 0x10;
+        frame_palette[15] = 0x16;
+    }
+    fcvideo_set_palette(&converter, frame_palette);
+    fcvideo_set_native_status(&converter, native_status);
+    if (native_status) {
+        fcvideo_blank_status(&converter);
+    }
     uint32_t start = time_us_32();
     fcvideo_convert_staged(&converter,
                            (uint8_t *)fcbus_device_stream_back(&bus), attributes,
                            reset_hysteresis);
+    if (frame_proto == FCBUS_PROTO_V4) {
+        fcvideo_compact_native_text((uint8_t *)fcbus_device_stream_back(&bus));
+    }
     uint32_t elapsed = time_us_32() - start;
     if (elapsed > conversion_max_us) conversion_max_us = elapsed;
     conversion_total_us += elapsed;
 
+    uint8_t ui_packet[MBX_UI_LEN];
+    fcui_pack_status(ui_packet, &status);
+    if (!have_ui_packet || memcmp(ui_packet + 1, last_ui_packet + 1, 14) != 0) {
+        ui_generation++;
+        status.generation = ui_generation;
+        fcui_pack_status(ui_packet, &status);
+        memcpy(last_ui_packet, ui_packet, MBX_UI_LEN);
+        have_ui_packet = true;
+    }
+
     /* The IRQ may arm the front buffer, but cannot swap this completed back
      * buffer until publish. Keep mailbox commands and publication atomic. */
     uint32_t saved = save_and_disable_interrupts();
+    if (bus.core.proto != frame_proto) {
+        restore_interrupts(saved);
+        dropped_frames++;
+        return;
+    }
     uint32_t init_events = fcbus_device_stats(&bus)->init_events;
     if (init_events != init_seen) {
         init_seen = init_events;
+        have_ui_packet = false;
+        native_text_ready = false;
         /* v2 carries palette and attributes in every mailbox, so there is
          * no blocking v1 bulk transfer to request on console init. */
     }
-    fcbus_core_palette(&bus.core, palette_sets[palette_num]);
+    fcbus_core_palette(&bus.core, frame_palette);
     fcbus_core_attr_table(&bus.core, attributes);
+    (void)fcbus_core_ui_snapshot(&bus.core, ui_packet);
+    if (frame_proto == FCBUS_PROTO_V4) {
+        uint8_t desired[NATIVE_TEXT_TILES];
+        fcui_format_ammo_row(desired, &status);
+        if (!native_text_ready) {
+            memset(native_text_sent, ' ', sizeof native_text_sent);
+            native_text_ready = true;
+        }
+        unsigned queued = 0;
+        for (unsigned i = 0; i < NATIVE_TEXT_TILES && queued < 2; ++i) {
+            if (native_text_sent[i] != desired[i] &&
+                fcbus_core_cmd_vram(&bus.core,
+                                    (uint16_t)(0x2382u + i), desired[i])) {
+                native_text_sent[i] = desired[i];
+                queued++;
+            }
+        }
+    } else {
+        native_text_ready = false;
+    }
     fcbus_device_publish(&bus);
     restore_interrupts(saved);
     converted_frames++;
