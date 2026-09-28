@@ -2486,7 +2486,10 @@ void M_Drawer (void)
     // Native FCPico menu sprites replace these label patches and the skull.
     // Keep the menu routine above: it draws titles, sliders, and option values.
 #if FCPICO
-    boolean native_menu = M_NativeMenuId() != 0;
+    // The full difficulty names are wider than eight NES sprites per line.
+    // Keep Doom's original styled patches until their native BG version lands.
+    int native_menu_id = M_NativeMenuId();
+    boolean native_menu = native_menu_id != 0 && native_menu_id != 3;
 #else
     boolean native_menu = false;
 #endif
