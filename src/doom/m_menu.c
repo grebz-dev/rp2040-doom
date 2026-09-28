@@ -206,7 +206,7 @@ int M_NativeMenuId(void)
 {
     if (!menuactive || messageToPrint) return 0;
     if (currentMenu == &MainDef) return 1;
-    if (currentMenu == &EpiDef) return 2;
+    if (currentMenu == &EpiDef && EpiDef.numitems <= 3) return 2;
     if (currentMenu == &NewDef) return 3;
     if (currentMenu == &OptionsDef) return 4;
     if (currentMenu == &SoundDef) return 5;
@@ -1105,8 +1105,10 @@ void M_MusicVol(int choice)
 //
 void M_DrawMainMenu(void)
 {
+#if !FCPICO
     V_DrawPatchDirect(94, 2,
                       VPATCH_HANDLE(VPATCH_NAME(M_DOOM)));
+#endif
 }
 
 
