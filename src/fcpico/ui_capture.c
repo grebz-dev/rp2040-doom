@@ -41,5 +41,6 @@ void fcpico_ui_capture(fcui_status_t *status, uint8_t generation) {
     status->armor = count_value(player->armorpoints);
     for (int i = 0; i < NUMAMMO && i < 4; ++i) {
         status->ammo[i] = count_value(player->ammo[i]);
+        status->maxammo[i] = count_value(player->maxammo[i]);
     }
 }

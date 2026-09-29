@@ -144,11 +144,12 @@ void fcvideo_frame_end(int palette_num, int video_type)
     if (native_status) {
         frame_palette[12] = 0x0F;
         frame_palette[13] = 0x00;
-        frame_palette[14] = 0x10;
+        frame_palette[14] = 0x30;
         frame_palette[15] = 0x16;
     }
     fcvideo_set_palette(&converter, frame_palette);
     fcvideo_set_native_status(&converter, native_status);
+    fcvideo_set_status_snapshot(&converter, &status);
     if (native_status) {
         fcvideo_blank_status(&converter);
     }
