@@ -204,7 +204,7 @@ void fcvideo_frame_end(int palette_num, int video_type)
         for (unsigned i = 0; i < NATIVE_TEXT_TILES && queued < 2; ++i) {
             if (native_text_sent[i] != desired[i] &&
                 fcbus_core_cmd_vram(&bus.core,
-                                    (uint16_t)(0x2382u + i), desired[i])) {
+                                    (uint16_t)(0x23A2u + i), desired[i])) {
                 native_text_sent[i] = desired[i];
                 queued++;
             }
