@@ -159,6 +159,12 @@ void fcvideo_frame_end(int palette_num, int video_type)
                            reset_hysteresis);
     if (frame_proto == FCBUS_PROTO_V4) {
         fcvideo_compact_native_text((uint8_t *)fcbus_device_stream_back(&bus));
+        if ((status.flags & FCUI_FLAG_MENU) &&
+            (status.ready_weapon >> 4) == 2) {
+            fcvideo_overlay_episode_menu(
+                (uint8_t *)fcbus_device_stream_back(&bus), attributes,
+                frame_palette);
+        }
     }
     uint32_t elapsed = time_us_32() - start;
     if (elapsed > conversion_max_us) conversion_max_us = elapsed;
