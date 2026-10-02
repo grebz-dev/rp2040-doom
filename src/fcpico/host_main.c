@@ -4,6 +4,8 @@
 #include "i_system.h"
 #include "m_argv.h"
 #include "fcpico_video_sink.h"
+#include "i_audio_fcpico.h"
+#include "pico/platform.h"
 #include "fcvideo.h"
 #include "doom/m_menu.h"
 #include "doom/doomstat.h"
@@ -24,6 +26,19 @@ static const char *dump_8bit_dir;
 static const char *dump_stream_dir;
 static unsigned frame_limit;
 static unsigned frame_count;
+
+bool fcpico_audio_write(void *user, uint8_t reg, uint8_t value)
+{
+    (void)user; (void)reg; (void)value;
+    return true;
+}
+
+void fcpico_audio_update(void)
+{
+    /* Host rendered frames provide a deterministic synthetic heartbeat. */
+    if (get_core_num() != 0) return;
+    I_FCPicoAudioPump(frame_count);
+}
 static unsigned use_frames;
 static unsigned menu_at;
 static unsigned char composed_frame[320 * 200];

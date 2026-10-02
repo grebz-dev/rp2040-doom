@@ -20,6 +20,9 @@
 #include <stdlib.h>
 
 #include "i_sound.h"
+#if FCPICO
+#include "fcpico/i_audio_fcpico.h"
+#endif
 #include "i_system.h"
 
 #include "deh_str.h"
@@ -716,7 +719,10 @@ void S_ChangeMusic(int musicnum, int looping)
         music->lumpnum = W_GetNumForName(namebuf);
     }
 
-#if !DOOM_SMALL
+#if FCPICO
+    /* The cartridge plays preconverted APUS, not WHX's MUSX lump bytes. */
+    handle = I_FCPicoRegisterSongLump(music->lumpnum);
+#elif !DOOM_SMALL
     music->data = W_CacheLumpNum(music->lumpnum, PU_STATIC);
     handle = I_RegisterSong(music->data, W_LumpLength(music->lumpnum));
 #else
@@ -744,7 +750,9 @@ void S_StopMusic(void)
 
         I_StopSong();
         I_UnRegisterSong(mus_playing->handle);
+#if !FCPICO
         W_ReleaseLumpNum(mus_playing->lumpnum);
+#endif
 #if !DOOM_SMALL
         mus_playing->data = NULL;
 #endif

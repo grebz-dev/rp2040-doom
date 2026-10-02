@@ -4,6 +4,7 @@
 #include "fcpico_video_sink.h"
 #include "fcvideo.h"
 #include "fcbus_device.h"
+#include "i_audio_fcpico.h"
 #include "ui_capture.h"
 #include "w_wad.h"
 #include "z_zone.h"
@@ -18,6 +19,23 @@ extern const unsigned char fcpico_bootrom[];
 extern const int fcpico_bootrom_length;
 
 static fcbus_device_t bus;
+
+bool fcpico_audio_write(void *user, uint8_t reg, uint8_t value)
+{
+    (void)user;
+    /* Called inside fcpico_audio_update's mailbox transaction. */
+    return fcbus_core_apu_write(&bus.core, reg, value);
+}
+
+void fcpico_audio_update(void)
+{
+    /* Rendering wait loops may poll from core 1; sequencer state belongs to
+     * the engine on core 0. The bus IRQ runs there too. */
+    if (get_core_num() != 0) return;
+    uint32_t saved = save_and_disable_interrupts();
+    I_FCPicoAudioPump(bus.core.frame_no);
+    restore_interrupts(saved);
+}
 static fcvideo_t converter;
 static uint8_t err[FCVIDEO_ERR_BYTES];
 static uint8_t lut[FCVIDEO_LUT_BYTES];

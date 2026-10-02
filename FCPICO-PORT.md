@@ -43,7 +43,7 @@ Work items are referenced by the task IDs of `fc-pico/doom/plan/10-workplan.md`.
 |------|--------------|--------------|
 | `i_video_fcpico.c` | `src/pico/i_video.c` | No `scanvideo`. Scanline composition (`scanline_func_*`, `draw_vpatch`, overlays, wipe) writes **8-bit palette indices** into a 320-byte line buffer instead of 16-bit RGB; `palette[]` lookups and the interpolator-based `palette8to16` go away; `shared_pal` becomes `uint8_t`. `new_frame_stuff()` keeps the frame-flip/overlay/wipe logic and records `next_pal` for the console palette instead of rebuilding `palette[]`. `I_InitGraphics` launches `core1()` which installs the `fcbus` ISR and a `LOW_PRIO_IRQ` handler that calls `fcvideo_convert_frame()` (fc-pico side) whenever a heartbeat arrives and a new frame is ready. Text mode (ENDOOM) is not ported (`NO_USE_ENDDOOM=1`). The `stbar` XIP-stream DMA trick is dropped unless measured to matter. Keep `__no_inline_not_in_flash_func` on everything that runs while `VIDEO_TYPE_SAVING` (flash programming) is active. See `fc-pico/doom/plan/04-video.md`. |
 | `i_input_fcpico.c` | `src/pico/i_input.c` | Keep the UART "SDL event forwarder" path for bring-up; add `fcinput_poll()` called from `I_StartTic()`: latched controller bytes (from `fcbus`) -> edge detection -> `D_PostEvent` with Doom keys; tap/hold logic for B (use vs strafe) and Select (next weapon vs automap); always-run; cheat sequences. See `plan/05-input.md`. |
-| `i_sound_fcpico.c` | `src/pico/i_picosound.c` (interface only) | `sound_fcpico_module` and `music_fcpico_module` forwarding to the `fcapu` APU register sequencer (fc-pico side): `StartSound` -> `fcapu_sfx_start(id, vol)`, `PlaySong` -> `fcapu_music_play(stream)`, `UpdateSound` -> `fcapu_pump()`. No ADPCM, no emu8950, no `pico_audio_i2s`. See `plan/06-audio.md`. |
+| `i_sound_fcpico.c` | `src/pico/i_picosound.c` (interface only) | `sound_fcpico_module` and `music_fcpico_module` forwarding to the `fcapu` APU register sequencer (fc-pico side): `StartSound` -> `fcapu_sfx_start(id, vol)`, `PlaySong` -> `fcapu_music_play(id, looping)`, `UpdateSound` -> heartbeat-gated `fcapu_pump()`. No ADPCM, no emu8950, no `pico_audio_i2s`. See `plan/06-audio.md`. |
 | `i_main_fcpico.c` | `src/i_main.c` | Clock/voltage setup for the cartridge (150 MHz initially; overclock is a later task), no I2S `bi_decl`, no `piconet_init()`. Alternatively `#if FCPICO` in `i_main.c` if the diff stays small. |
 | `host_main.c` | new | host entry point described above. |
 | `fcpico_video_sink.h` | new | the seam: `fcvideo_line_sink(int y, const uint8_t *line320)` and `fcvideo_frame_begin/end(next_pal, video_type)`, implemented on the fc-pico side. |
@@ -73,3 +73,18 @@ Work items are referenced by the task IDs of `fc-pico/doom/plan/10-workplan.md`.
   unset): CI in fc-pico builds them from the submodule as a regression check.
 - `fcpico_doom` links for rp2350 with flash end below `0x10080000`.
 - `fcpico_doom_host --demo 1 --frames 600` is deterministic.
+
+## Engine audio adapter (P4-T2, 2026-10-02)
+
+The sound/music modules now forward to the host-tested `fcapu` sequencer. Install
+an immutable `fcpico_audio_bank_t` through `I_FCPicoAudioSetBank()` before module
+initialization; `i_audio_fcpico.h` documents its lifetime and name mapping.
+Music registration resolves configured WHX lump names without caching MUSX data.
+Effects support linked aliases, opaque handles, stop/query and volume updates.
+
+Device updates run on core 0 under a local interrupt guard, once per bus frame,
+and enqueue writes in the bus mailbox. Host updates use rendered-frame counts
+and discard writes. The superbuild's `tests/audio_engine` tests the real module
+with synthetic and empty banks, including sanitizer coverage. No generated bank
+is installed yet: default builds remain silent, and console playback and combined
+UI/APU timing are still pending.
