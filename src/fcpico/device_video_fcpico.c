@@ -19,11 +19,21 @@ extern const unsigned char fcpico_bootrom[];
 extern const int fcpico_bootrom_length;
 
 static fcbus_device_t bus;
+static uint32_t audio_irq_max_us;
+
+static void audio_heartbeat(void *user, uint32_t frame)
+{
+    (void)user;
+    uint32_t start = time_us_32();
+    I_FCPicoAudioPump(frame);
+    uint32_t elapsed = time_us_32() - start;
+    if (elapsed > audio_irq_max_us) audio_irq_max_us = elapsed;
+}
 
 bool fcpico_audio_write(void *user, uint8_t reg, uint8_t value)
 {
     (void)user;
-    /* Called inside fcpico_audio_update's mailbox transaction. */
+    /* Sequencer calls hold the core 0 interrupt guard. */
     return fcbus_core_apu_write(&bus.core, reg, value);
 }
 
@@ -91,6 +101,7 @@ void fcpico_video_device_init(void)
         .proto_default = FCBUS_PROTO_V2,
     };
     if (!fcbus_device_init(&bus, &config)) panic("cartridge bus init failed");
+    fcbus_device_set_heartbeat_callback(&bus, audio_heartbeat, NULL);
 }
 
 #if FCPICO_DIAGNOSTIC_ENGINE_DELAY
@@ -107,6 +118,10 @@ void fcpico_video_device_diag_tick(void)
     fcbus_state_t state = bus.core.state;
     bool pending = bus.core.publish_pending;
     uint32_t raw_count = bus.diag_raw_read_count;
+    fcapu_stats_t audio_stats = *fcapu_stats();
+    uint32_t audio_irq_us = audio_irq_max_us;
+    bool audio_bank_present = I_FCPicoAudioHasBank();
+    bool music_playing = fcapu_music_playing();
     restore_interrupts(saved);
 
     printf("[DEBUG-hr3] bus state=%u proto=%u init=%lu hb=%lu count=%lu raw=%lu "
@@ -119,6 +134,11 @@ void fcpico_video_device_diag_tick(void)
            (unsigned long)stats.hb_timeouts, (unsigned long)stats.proto_errors,
            (unsigned)converter_ready, (unsigned long)converted_frames,
            (unsigned long)dropped_frames, (unsigned)pending);
+    printf("[audio] bank=%u music=%u frames=%lu pairs_max=%u deferred=%lu drops=%lu irq_max_us=%lu\n",
+           (unsigned)audio_bank_present, (unsigned)music_playing,
+           (unsigned long)audio_stats.frames, (unsigned)audio_stats.pairs_per_frame_max,
+           (unsigned long)audio_stats.deferred, (unsigned long)audio_stats.dropped,
+           (unsigned long)audio_irq_us);
 }
 #endif
 

@@ -82,8 +82,11 @@ initialization; `i_audio_fcpico.h` documents its lifetime and name mapping.
 Music registration resolves configured WHX lump names without caching MUSX data.
 Effects support linked aliases, opaque handles, stop/query and volume updates.
 
-Device updates run on core 0 under a local interrupt guard, once per bus frame,
-and enqueue writes in the bus mailbox. Host updates use rendered-frame counts
+Device updates run in core 0's heartbeat IRQ after DMA re-arm, preparing the next
+mailbox even while the engine renders. Engine sequencer calls and the pump use
+a local interrupt guard; repeated engine polls at the same heartbeat are no-ops.
+Serial `[audio]` diagnostics expose bank presence, music state, sequencer frames,
+maximum pairs, deferred/dropped writes and maximum audio IRQ time. Host updates use rendered-frame counts
 and can capture writes using `--dump-apu FILE`. The superbuild's
 `tests/audio_engine` tests the real module with synthetic and empty banks,
 including sanitizer coverage. The superbuild installs a default bank when

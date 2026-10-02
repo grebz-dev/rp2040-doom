@@ -16,9 +16,11 @@ typedef struct {
 bool I_FCPicoAudioSetBank(const fcpico_audio_bank_t *bank);
 void *I_FCPicoRegisterSongLump(int lumpnum);
 void I_FCPicoAudioPump(uint32_t heartbeat);
+bool I_FCPicoAudioHasBank(void);
 
-/* Platform update owns the mailbox transaction/IRQ exclusion and calls Pump
- * once it has a stable heartbeat. Core 0 owns the engine/sequencer state. */
+/* Core 0 owns engine/sequencer state. Device bus IRQ calls Pump after DMA
+ * re-arm; Pump and all engine sequencer operations exclude local interrupts.
+ * Additional platform polls at the same heartbeat are harmless. */
 void fcpico_audio_update(void);
 bool fcpico_audio_write(void *user, uint8_t reg, uint8_t value);
 
