@@ -33,6 +33,10 @@ bool I_FCPicoAudioSetBank(const fcpico_audio_bank_t *bank)
 static void initialize(void)
 {
     if (!ready) {
+#if FCPICO_AUDIO_BANK
+        extern const fcpico_audio_bank_t *fcpico_audio_default_bank(void);
+        if (!audio_bank) audio_bank = fcpico_audio_default_bank();
+#endif
         fcapu_init(audio_bank ? audio_bank->streams : NULL, fcpico_audio_write, NULL);
         for (int i = 0; i < FCAPU_MUSIC_COUNT; i++) song_ids[i] = i;
         for (unsigned i = 0; i < sizeof(channel_handles) / sizeof(channel_handles[0]); i++)

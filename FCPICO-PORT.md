@@ -84,7 +84,10 @@ Effects support linked aliases, opaque handles, stop/query and volume updates.
 
 Device updates run on core 0 under a local interrupt guard, once per bus frame,
 and enqueue writes in the bus mailbox. Host updates use rendered-frame counts
-and discard writes. The superbuild's `tests/audio_engine` tests the real module
-with synthetic and empty banks, including sanitizer coverage. No generated bank
-is installed yet: default builds remain silent, and console playback and combined
-UI/APU timing are still pending.
+and can capture writes using `--dump-apu FILE`. The superbuild's
+`tests/audio_engine` tests the real module with synthetic and empty banks,
+including sanitizer coverage. The superbuild installs a default bank when
+`FCPICO_AUDIO_WAD` is set. Its getter checks archive identity before initialization;
+explicit caller banks take precedence. The device archive occupies the reserved
+asset region and must accompany the firmware in the merged UF2. Unconfigured
+builds remain silent; console playback and combined UI/APU timing are pending.

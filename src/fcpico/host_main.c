@@ -26,10 +26,15 @@ static const char *dump_8bit_dir;
 static const char *dump_stream_dir;
 static unsigned frame_limit;
 static unsigned frame_count;
+static FILE *apu_file;
 
 bool fcpico_audio_write(void *user, uint8_t reg, uint8_t value)
 {
-    (void)user; (void)reg; (void)value;
+    (void)user;
+    if (apu_file && fprintf(apu_file, "%u,%02x,%02x\n", frame_count, reg, value) < 0) {
+        fprintf(stderr, "cannot write APU capture\n");
+        exit(1);
+    }
     return true;
 }
 
@@ -195,7 +200,14 @@ void fcvideo_frame_end(int palette_num, int video_type)
                    (long)players[consoleplayer].mo->xy.y);
         }
         printf("host frames=%u\n", frame_count);
+        const fcapu_stats_t *audio_stats = fcapu_stats();
+        printf("apu frames=%u pairs_max=%u drops=%u\n", audio_stats->frames,
+               audio_stats->pairs_per_frame_max, audio_stats->dropped);
         if (pads_file != NULL) printf("use frames=%u\n", use_frames);
+        if (apu_file && fclose(apu_file) != 0) {
+            fprintf(stderr, "cannot finish APU capture\n");
+            exit(1);
+        }
         exit(0);
     }
 }
@@ -204,7 +216,7 @@ static void usage(const char *program)
 {
     fprintf(stderr, "usage: %s --whx FILE [--demo N] [--frames N] [--lockstep] "
                     "[--dump-8bit DIR] [--menu-at N] [--dump-stream DIR] "
-                    "[--pads FILE] [--warp EPISODE MAP]\n", program);
+                    "[--pads FILE] [--warp EPISODE MAP] [--dump-apu FILE]\n", program);
 }
 
 int main(int argc, char **argv)
@@ -241,6 +253,12 @@ int main(int argc, char **argv)
             frame_limit = (unsigned)parsed_frames;
         } else if (strcmp(argv[i], "--dump-8bit") == 0 && i + 1 < argc) {
             dump_8bit_dir = argv[++i];
+        } else if (strcmp(argv[i], "--dump-apu") == 0 && i + 1 < argc) {
+            apu_file = fopen(argv[++i], "w");
+            if (!apu_file) {
+                fprintf(stderr, "cannot create APU capture %s: %s\n", argv[i], strerror(errno));
+                return 2;
+            }
         } else if (strcmp(argv[i], "--dump-stream") == 0 && i + 1 < argc) {
             dump_stream_dir = argv[++i];
         } else if (strcmp(argv[i], "--menu-at") == 0 && i + 1 < argc) {
