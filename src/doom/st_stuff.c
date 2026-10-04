@@ -1028,7 +1028,14 @@ void ST_createWidgets(void)
 		  ST_AMMOX,
 		  ST_AMMOY,
 		  tallnum,
+#if FCPICO
+                  // The initial ready weapon can be the fist (am_noammo).
+                  // ST_updateWidgets redirects the placeholder before drawing.
+                  &plyr->ammo[weaponinfo[plyr->readyweapon].ammo == am_noammo
+                              ? 0 : weaponinfo[plyr->readyweapon].ammo],
+#else
 		  &plyr->ammo[weaponinfo[plyr->readyweapon].ammo],
+#endif
 		  &st_statusbaron,
 		  ST_AMMOWIDTH );
 
