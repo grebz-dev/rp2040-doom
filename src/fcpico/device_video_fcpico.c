@@ -7,6 +7,9 @@
 #include "i_audio_fcpico.h"
 #include "ui_capture.h"
 #include "w_wad.h"
+#if FCPICO_WORLD_SPRITES
+#include "world_sprites.h"
+#endif
 #include "z_zone.h"
 #include "pico/stdlib.h"
 #include "pico/bootrom.h"
@@ -20,6 +23,19 @@ extern const int fcpico_bootrom_length;
 
 static fcbus_device_t bus;
 static uint32_t audio_irq_max_us;
+#if FCPICO_WORLD_SPRITES
+static fcworld_t world;
+static uint32_t world_errors;
+static const uint8_t menu_sprite_palettes[MBX_WORLD_PAL_LEN] = FCWORLD_MENU_PALETTES_INIT;
+
+static void __not_in_flash_func(world_hook)(void *user, uint8_t *mailbox, uint8_t pad2,
+                                            bool swapped)
+{
+    (void)user;
+    (void)swapped;
+    if (bus.core.proto == FCBUS_PROTO_V5) fcworld_heartbeat(&world, mailbox, pad2);
+}
+#endif
 
 static void audio_heartbeat(void *user, uint32_t frame)
 {
@@ -102,6 +118,13 @@ void fcpico_video_device_init(void)
     };
     if (!fcbus_device_init(&bus, &config)) panic("cartridge bus init failed");
     fcbus_device_set_heartbeat_callback(&bus, audio_heartbeat, NULL);
+#if FCPICO_WORLD_SPRITES
+    fcworld_reset(&world);
+    if (!fcpico_world_init_default()) printf("world sprites: atlas missing or mismatched\n");
+    uint32_t saved = save_and_disable_interrupts();
+    fcbus_core_set_mailbox_hook(&bus.core, world_hook, NULL);
+    restore_interrupts(saved);
+#endif
 }
 
 #if FCPICO_DIAGNOSTIC_ENGINE_DELAY
@@ -164,6 +187,10 @@ void fcvideo_frame_end(int palette_num, int video_type)
     fcbus_device_poll(&bus);
     if (!converter_ready) return;
     if (!fcbus_device_back_is_free(&bus)) {
+#if FCPICO_WORLD_SPRITES
+        fcworld_frame_t discarded;
+        (void)fcpico_world_take(&discarded);
+#endif
         dropped_frames++;
         return;
     }
@@ -173,9 +200,15 @@ void fcvideo_frame_end(int palette_num, int video_type)
     uint32_t proto_lock = save_and_disable_interrupts();
     fcbus_proto_t frame_proto = bus.core.proto;
     restore_interrupts(proto_lock);
+#if FCPICO_WORLD_SPRITES
+    /* Takes effect from the next rendered frame. */
+    fcpico_world_set_link(frame_proto == FCBUS_PROTO_V5);
+    fcworld_frame_t world_frame;
+    (void)fcpico_world_prepare(&world_frame, world.shown_gen);
+#endif
     fcui_status_t status;
     fcpico_ui_capture(&status, ui_generation);
-    bool native_status = frame_proto == FCBUS_PROTO_V4 &&
+    bool native_status = frame_proto >= FCBUS_PROTO_V4 &&
         (status.flags & FCUI_FLAG_STATUS_VISIBLE);
     uint8_t frame_palette[MBX_PAL_LEN];
     memcpy(frame_palette, palette_sets[palette_num], sizeof frame_palette);
@@ -195,7 +228,7 @@ void fcvideo_frame_end(int palette_num, int video_type)
     fcvideo_convert_staged(&converter,
                            (uint8_t *)fcbus_device_stream_back(&bus), attributes,
                            reset_hysteresis);
-    if (frame_proto == FCBUS_PROTO_V4) {
+    if (frame_proto >= FCBUS_PROTO_V4) {
         fcvideo_compact_native_text((uint8_t *)fcbus_device_stream_back(&bus));
         if ((status.flags & FCUI_FLAG_MENU) &&
             (status.ready_weapon >> 4) == 2) {
@@ -231,13 +264,24 @@ void fcvideo_frame_end(int palette_num, int video_type)
         init_seen = init_events;
         have_ui_packet = false;
         native_text_ready = false;
+#if FCPICO_WORLD_SPRITES
+        fcworld_reset(&world);
+        fcpico_world_reset_console();
+#endif
         /* v2 carries palette and attributes in every mailbox, so there is
          * no blocking v1 bulk transfer to request on console init. */
     }
     fcbus_core_palette(&bus.core, frame_palette);
     fcbus_core_attr_table(&bus.core, attributes);
+#if FCPICO_WORLD_SPRITES
+    /* A menu takes world OAM slots and sprite palettes 0/2: release it only
+     * once the console shows no world generation and menu palettes. */
+    bool hold_menu = frame_proto == FCBUS_PROTO_V5 && (status.flags & FCUI_FLAG_MENU) &&
+                     !fcworld_quiescent(&world, menu_sprite_palettes);
+    if (!hold_menu)
+#endif
     (void)fcbus_core_ui_snapshot(&bus.core, ui_packet);
-    if (frame_proto == FCBUS_PROTO_V4) {
+    if (frame_proto >= FCBUS_PROTO_V4) {
         uint8_t desired[NATIVE_TEXT_TILES];
         fcui_format_ammo_row(desired, &status);
         if (!native_text_ready) {
@@ -256,6 +300,18 @@ void fcvideo_frame_end(int palette_num, int video_type)
     } else {
         native_text_ready = false;
     }
+#if FCPICO_WORLD_SPRITES
+    if (frame_proto == FCBUS_PROTO_V5) {
+        if (fcworld_take_stall(&world)) world_errors++;
+        uint8_t gen = fcworld_submit(&world, &world_frame);
+        if (gen == 0xFF) {
+            world_errors++;
+            gen = world.shown_gen;
+        }
+        fcbus_core_publish_world(&bus.core, gen);
+        fcpico_world_note_submitted(&world_frame);
+    } else
+#endif
     fcbus_device_publish(&bus);
     restore_interrupts(saved);
     converted_frames++;
@@ -269,5 +325,25 @@ void fcvideo_frame_end(int palette_num, int video_type)
                (unsigned long)dropped_frames,
                (unsigned long)stats->last_count,
                (unsigned long)stats->resyncs);
+#if FCPICO_WORLD_SPRITES
+        const fcpico_world_stats_t *ws = fcpico_world_stats();
+        printf("world admitted=%lu candidates=%lu streamed=%lu/%lu/%lu gens=%lu packets=%lu "
+               "resends=%lu tiles=%lu hits=%lu deferred=%lu busy_max=%lu stalls=%lu errors=%lu\n",
+               (unsigned long)ws->admitted, (unsigned long)ws->candidates,
+               (unsigned long)ws->streamed_budget, (unsigned long)ws->streamed_effect,
+               (unsigned long)ws->streamed_lookup, (unsigned long)world.stats.generations,
+               (unsigned long)world.stats.packets, (unsigned long)world.stats.resends,
+               (unsigned long)world.stats.chr_tiles, (unsigned long)world.stats.cache_hits,
+               (unsigned long)world.stats.deferred_heartbeats,
+               (unsigned long)world.stats.busy_heartbeats_max,
+               (unsigned long)world.stats.stalls, (unsigned long)world_errors);
+        if (ws->timed_frames) {
+            printf("world_us resolve=%lu/%lu build=%lu/%lu frames=%lu\n",
+                   (unsigned long)(ws->resolve_us_total / ws->timed_frames),
+                   (unsigned long)ws->resolve_us_max,
+                   (unsigned long)(ws->build_us_total / ws->timed_frames),
+                   (unsigned long)ws->build_us_max, (unsigned long)ws->timed_frames);
+        }
+#endif
     }
 }

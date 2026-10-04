@@ -28,6 +28,12 @@ int no_draw_psprites = 1;
 int no_draw_psprites;
 #endif
 
+#if FCPICO_WORLD_CAPTURE
+#include "fcpico/world_capture.h"
+#endif
+#if FCPICO_WORLD_SPRITES
+#include "fcpico/world_sprites.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #if DOOM_TINY
@@ -789,7 +795,22 @@ void R_ProjectSprite(mobj_t *thing) {
 
         vis->colormap = spritelights[index];
     }
+#if FCPICO_WORLD_SPRITES
+    if (fcpico_world_defer(vis, mobj_sprite(thing), mobj_frame(thing),
+                           spriteframe_rotates(sprframe) ? (int)rot : 0, lump, flip,
+                           (uint32_t)thing->flags))
+        return;
+#endif
+#if FCPICO_WORLD_CAPTURE
+    fcpico_world_owner = fcpico_world_actor(mobj_sprite(thing), mobj_frame(thing),
+        lump, flip, thing->flags, xscale, vis->colormap, vis->x1, vis->x2,
+        thing->xy.x, thing->xy.y, thing->z);
+    if (!fcpico_world_suppressed(fcpico_world_owner))
+#endif
     R_DrawSpriteEarly(vis);
+#if FCPICO_WORLD_CAPTURE
+    fcpico_world_owner = 0;
+#endif
 }
 
 
@@ -915,10 +936,16 @@ void R_DrawPSprite(pspdef_t *psp) {
 
 #if PICO_DOOM
     pd_flag |= 2;
+#if FCPICO_WORLD_CAPTURE
+    fcpico_world_owner = FCPICO_WORLD_WEAPON;
+#endif
 #endif
     R_DrawVisSprite(vis, vis->x1, vis->x2);
 #if PICO_DOOM
     pd_flag &= ~2;
+#if FCPICO_WORLD_CAPTURE
+    fcpico_world_owner = 0;
+#endif
 #endif
 }
 

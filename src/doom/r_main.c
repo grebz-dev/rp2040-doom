@@ -28,6 +28,9 @@
 
 
 #include "doomdef.h"
+#if FCPICO_WORLD_SPRITES
+#include "fcpico/world_sprites.h"
+#endif
 #include "d_loop.h"
 
 #include "m_bbox.h"
@@ -1211,6 +1214,9 @@ void R_RenderPlayerView(player_t *player) {
 
     node_coord_t bbox[4] = { 32767, -32768, -32768, 32767 };
     R_RenderBSPNode(numnodes -1, bbox);
+#if FCPICO_WORLD_SPRITES
+    fcpico_world_admit();
+#endif
 #endif
 #if PICO_ON_DEVICE
 //    gpio_put(22, 0);

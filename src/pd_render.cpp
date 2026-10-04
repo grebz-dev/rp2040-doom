@@ -7,6 +7,12 @@
 // This is a rationalization of pd_render into something which does the sort on insert, but without all the memory
 // chicanery we'll need from the final version
 
+#if FCPICO_WORLD_CAPTURE
+#include "fcpico/world_capture.h"
+#endif
+#if FCPICO_WORLD_SPRITES
+#include "fcpico/world_sprites.h"
+#endif
 #include "picodoom.h"
 #include "pico/sem.h"
 #include "hardware/gpio.h"
@@ -333,6 +339,9 @@ static int16_t render_col_count;
 #define render_cols ((pd_column *)list_buffer)
 #define flat_runs ((flat_run *)list_buffer)
 static int16_t render_col_free;
+#if FCPICO_WORLD_CAPTURE
+static uint8_t world_column_owner[RENDER_COL_MAX];
+#endif
 
 static int16_t alloc_pd_column(int x) {
     if (render_col_free < 0) {
@@ -347,6 +356,9 @@ static int16_t alloc_pd_column(int x) {
     int16_t rc = render_col_free;
     render_col_free = render_cols[rc].next;
     render_cols[rc].next = -1;
+#if FCPICO_WORLD_CAPTURE
+    world_column_owner[rc] = fcpico_world_owner;
+#endif
     return rc;
 }
 
@@ -474,6 +486,9 @@ static void push_down_x_guts(int x, int16_t new_index) {
                     int16_t extra_index = alloc_pd_column(x);
                     if (extra_index >= 0) {
                         render_cols[extra_index] = cb;
+#if FCPICO_WORLD_CAPTURE
+                        world_column_owner[extra_index] = world_column_owner[&cb - render_cols];
+#endif
                         render_cols[extra_index].yl = cf.yh + 1;
 
                         // top part is just clipped
@@ -551,6 +566,9 @@ static void push_down_x_guts(int x, int16_t new_index) {
                     int16_t extra_index = alloc_pd_column(x);
                     if (extra_index >= 0) {
                         render_cols[extra_index] = cb;
+#if FCPICO_WORLD_CAPTURE
+                        world_column_owner[extra_index] = world_column_owner[&cb - render_cols];
+#endif
                         render_cols[extra_index].yl = cf.yh + 1;
 
                         // top part
@@ -699,6 +717,9 @@ static void push_down_x_fuzzy(int x, int16_t new_index) {
                     int16_t extra_index = alloc_pd_column(x);
                     if (extra_index >= 0) {
                         render_cols[extra_index] = cb;
+#if FCPICO_WORLD_CAPTURE
+                        world_column_owner[extra_index] = world_column_owner[&cb - render_cols];
+#endif
                         render_cols[extra_index].yl = cf.yh + 1;
 
                         // top part
@@ -762,7 +783,30 @@ static void push_down_x(int x, int new_index) {
 #endif
 }
 
+#if FCPICO_WORLD_SPRITES
+// Same depth as a sprite column inserted by pd_add_masked_columns.
+extern "C" uint32_t pd_world_sprite_depth(uint32_t scale) {
+    uint32_t iscale = scale ? 0xffffffffu / scale : DDA_MAX;
+    return iscale > DDA_MAX ? DDA_MAX : iscale;
+}
+
+// Stored scale of the front span covering view pixel (x, y); smaller is nearer.
+extern "C" uint32_t pd_world_front_depth(int x, int y) {
+    if (x < 0 || x >= SCREENWIDTH) return 0xffffffffu;
+    for (int16_t i = column_heads[x]; i >= 0; i = render_cols[i].next) {
+        if (y >= render_cols[i].yl && y <= render_cols[i].yh) return render_cols[i].scale;
+    }
+    return 0xffffffffu;
+}
+
+#endif
 void pd_begin_frame() {
+#if FCPICO_WORLD_CAPTURE
+    fcpico_world_begin();
+#endif
+#if FCPICO_WORLD_SPRITES
+    fcpico_world_frame_begin();
+#endif
     DEBUG_PINS_SET(start_end, 1);
     if (gamestate == GS_LEVEL) {
 //        render_frame_index ^= 1;
@@ -955,6 +999,10 @@ void pd_add_column(pd_column_type type) {
 }
 
 void pd_add_masked_columns(uint8_t *ys, int seg_count) {
+#if FCPICO_WORLD_CAPTURE
+    for (int i = 0; i < seg_count; ++i)
+        fcpico_world_projected(fcpico_world_owner, dc_x, ys[i * 3], ys[i * 3 + 1]);
+#endif
     // --- VALIDATION AND CLAMPING
     fixed_t iscale;
 #if FORCE_ISCALE
@@ -1021,6 +1069,9 @@ void pd_add_masked_columns(uint8_t *ys, int seg_count) {
         int new_rc_index = alloc_pd_column(dc_x);
         if (new_rc_index < 0) break;
         render_cols[new_rc_index] = render_cols[rc_index];
+#if FCPICO_WORLD_CAPTURE
+        world_column_owner[new_rc_index] = world_column_owner[rc_index];
+#endif
         render_cols[rc_index].next = new_rc_index;
         rc_index = new_rc_index;
         assert(ys[i * 3 + 1] >= ys[i * 3]);
@@ -1920,6 +1971,10 @@ static void draw_patch_columns(int patch_num, int patch_head, int16_t *col_heads
                     fixed_t fracstep = DDA_UP_SHIFT(c.scale);
                     if (!fracstep) fracstep = 0x10000;
                     fixed_t frac = UP_SHIFT(c.texturemid) + (c.yl - centery) * fracstep;
+#if FCPICO_WORLD_CAPTURE
+                    fcpico_world_pixels(world_column_owner[i & 0x7fff],
+                        c.x + ((i & 0x8000u) >> 7u), c.yl, c.yh - c.yl, pixels, frac, fracstep);
+#endif
                     col_render(p, c.yh - c.yl, pixels, frac, fracstep, dc_colormap);
                     i = c.next;
                 } while (i != -1);
@@ -1946,6 +2001,10 @@ static void draw_patch_columns(int patch_num, int patch_head, int16_t *col_heads
 //                            p += SCREENWIDTH;
 //                        }
 //                    }
+#if FCPICO_WORLD_CAPTURE
+                    fcpico_world_pixels(world_column_owner[i & 0x7fff],
+                        c.x + ((i & 0x8000u) >> 7u), c.yl, c.yh - c.yl, pixels, frac, fracstep);
+#endif
                     col_render(p, c.yh - c.yl, pixels, frac, fracstep, dc_colormap);
                     i = c.next;
                 } while (i != -1);
@@ -2230,7 +2289,11 @@ static void draw_composite_columns(int texture_num, int tex_head) {
                                 fixed_t fracstep = DDA_UP_SHIFT(c.scale);
                                 if (!fracstep) fracstep = 0x10000;
                                 fixed_t frac = UP_SHIFT(c.texturemid) + (c.yl - centery) * fracstep;
-                                col_render(p, c.yh - c.yl, pixels, frac, fracstep, dc_colormap);
+            #if FCPICO_WORLD_CAPTURE
+                    fcpico_world_pixels(world_column_owner[i & 0x7fff],
+                        c.x + ((i & 0x8000u) >> 7u), c.yl, c.yh - c.yl, pixels, frac, fracstep);
+#endif
+                    col_render(p, c.yh - c.yl, pixels, frac, fracstep, dc_colormap);
                                 i = c.next;
                             } while (i != -1);
                         } else {
@@ -2245,7 +2308,11 @@ static void draw_composite_columns(int texture_num, int tex_head) {
                                 fixed_t fracstep = DDA_UP_SHIFT(c.scale);
                                 if (!fracstep) fracstep = 0x10000;
                                 fixed_t frac = UP_SHIFT(c.texturemid) + (c.yl - centery) * fracstep;
-                                col_render(p, c.yh - c.yl, pixels, frac, fracstep, dc_colormap);
+            #if FCPICO_WORLD_CAPTURE
+                    fcpico_world_pixels(world_column_owner[i & 0x7fff],
+                        c.x + ((i & 0x8000u) >> 7u), c.yl, c.yh - c.yl, pixels, frac, fracstep);
+#endif
+                    col_render(p, c.yh - c.yl, pixels, frac, fracstep, dc_colormap);
                                 i = c.next;
                             } while (i != -1);
                         }
@@ -2770,6 +2837,18 @@ void pd_end_frame(int wipe_start) {
             }
         }
     }
+#if FCPICO_WORLD_CAPTURE
+    // Read ownership before re-sorting/reusing PD columns. Weapon columns have
+    // scale zero and have already removed occluded world spans, including reload.
+    for (int x = 0; x < SCREENWIDTH; ++x)
+        for (int i = column_heads[x]; i >= 0; i = render_cols[i].next)
+            fcpico_world_visible(world_column_owner[i], x, render_cols[i].yl, render_cols[i].yh);
+#endif
+#if FCPICO_WORLD_SPRITES
+    // Admitted native actors are absent from the column lists; query the
+    // resolved front spans before visplanes reuse them.
+    fcpico_world_resolve();
+#endif
     // render the visplane identifiers, freeing up the visplane columns (which we will use below)
     int16_t fr_list = predraw_visplanes();
 
