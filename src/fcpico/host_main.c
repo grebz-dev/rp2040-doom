@@ -213,10 +213,12 @@ void fcvideo_frame_end(int palette_num, int video_type)
             bool native = (status.flags & FCUI_FLAG_STATUS_VISIBLE) != 0;
             uint8_t palette[MBX_PAL_LEN];
             memcpy(palette, stream_palettes[palette_num], sizeof palette);
+#if FCVIDEO_DEFAULT_PRESET != FCVIDEO_PRESET_SHARED_HUD
             if (native) {
-                palette[12] = 0x0f; palette[13] = 0;
-                palette[14] = 0x30; palette[15] = 0x16;
+                uint8_t *hud = palette + FCVIDEO_HUD_PALETTE * 4;
+                hud[0] = 0x0f; hud[1] = 0; hud[2] = 0x30; hud[3] = 0x16;
             }
+#endif
             fcvideo_set_palette(&stream_video, palette);
             fcvideo_set_native_status(&stream_video, native);
             fcvideo_set_status_snapshot(&stream_video, &status);

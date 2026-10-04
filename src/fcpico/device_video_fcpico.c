@@ -205,6 +205,15 @@ void fcvideo_frame_end(int palette_num, int video_type)
     fcpico_world_set_link(frame_proto == FCBUS_PROTO_V5);
     fcworld_frame_t world_frame;
     (void)fcpico_world_prepare(&world_frame, world.shown_gen);
+    /* Tiles and OAM halves upload during conversion; only the commit waits
+     * for this picture's publication. */
+    uint8_t world_gen = 0;
+    if (frame_proto == FCBUS_PROTO_V5) {
+        uint32_t held = save_and_disable_interrupts();
+        if (fcworld_take_stall(&world)) world_errors++;
+        world_gen = fcworld_submit_held(&world, &world_frame);
+        restore_interrupts(held);
+    }
 #endif
     fcui_status_t status;
     fcpico_ui_capture(&status, ui_generation);
@@ -212,12 +221,12 @@ void fcvideo_frame_end(int palette_num, int video_type)
         (status.flags & FCUI_FLAG_STATUS_VISIBLE);
     uint8_t frame_palette[MBX_PAL_LEN];
     memcpy(frame_palette, palette_sets[palette_num], sizeof frame_palette);
+#if FCVIDEO_DEFAULT_PRESET != FCVIDEO_PRESET_SHARED_HUD
     if (native_status) {
-        frame_palette[12] = 0x0F;
-        frame_palette[13] = 0x00;
-        frame_palette[14] = 0x30;
-        frame_palette[15] = 0x16;
+        uint8_t *hud = frame_palette + FCVIDEO_HUD_PALETTE * 4;
+        hud[0] = 0x0F; hud[1] = 0x00; hud[2] = 0x30; hud[3] = 0x16;
     }
+#endif
     fcvideo_set_palette(&converter, frame_palette);
     fcvideo_set_native_status(&converter, native_status);
     fcvideo_set_status_snapshot(&converter, &status);
@@ -255,6 +264,9 @@ void fcvideo_frame_end(int palette_num, int video_type)
      * buffer until publish. Keep mailbox commands and publication atomic. */
     uint32_t saved = save_and_disable_interrupts();
     if (bus.core.proto != frame_proto) {
+#if FCPICO_WORLD_SPRITES
+        fcworld_release(&world);
+#endif
         restore_interrupts(saved);
         dropped_frames++;
         return;
@@ -267,6 +279,7 @@ void fcvideo_frame_end(int palette_num, int video_type)
 #if FCPICO_WORLD_SPRITES
         fcworld_reset(&world);
         fcpico_world_reset_console();
+        if (frame_proto == FCBUS_PROTO_V5) world_gen = fcworld_submit(&world, &world_frame);
 #endif
         /* v2 carries palette and attributes in every mailbox, so there is
          * no blocking v1 bulk transfer to request on console init. */
@@ -302,12 +315,12 @@ void fcvideo_frame_end(int palette_num, int video_type)
     }
 #if FCPICO_WORLD_SPRITES
     if (frame_proto == FCBUS_PROTO_V5) {
-        if (fcworld_take_stall(&world)) world_errors++;
-        uint8_t gen = fcworld_submit(&world, &world_frame);
-        if (gen == 0xFF) {
+        uint8_t gen = world_gen;
+        if (fcworld_take_stall(&world) || gen == 0xFF) {
             world_errors++;
             gen = world.shown_gen;
         }
+        fcworld_release(&world);
         fcbus_core_publish_world(&bus.core, gen);
         fcpico_world_note_submitted(&world_frame);
     } else
