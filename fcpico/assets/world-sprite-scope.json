@@ -1,0 +1,198 @@
+{
+  "version": 2,
+  "families": {
+    "POSS": "enemy",
+    "SPOS": "enemy",
+    "TROO": "enemy",
+    "SARG": "enemy",
+    "HEAD": "enemy",
+    "BOSS": "enemy",
+    "SKUL": "enemy",
+    "STIM": "pickup",
+    "MEDI": "pickup",
+    "ARM1": "pickup",
+    "ARM2": "pickup",
+    "BON1": "pickup",
+    "BON2": "pickup",
+    "SOUL": "pickup",
+    "PINV": "pickup",
+    "PSTR": "pickup",
+    "PINS": "pickup",
+    "SUIT": "pickup",
+    "PMAP": "pickup",
+    "PVIS": "pickup",
+    "MEGA": "pickup",
+    "CLIP": "pickup",
+    "AMMO": "pickup",
+    "SHEL": "pickup",
+    "SBOX": "pickup",
+    "ROCK": "pickup",
+    "BROK": "pickup",
+    "CELL": "pickup",
+    "CELP": "pickup",
+    "BPAK": "pickup",
+    "BKEY": "pickup",
+    "RKEY": "pickup",
+    "YKEY": "pickup",
+    "BSKU": "pickup",
+    "RSKU": "pickup",
+    "YSKU": "pickup",
+    "SHOT": "pickup",
+    "SGN2": "pickup",
+    "MGUN": "pickup",
+    "LAUN": "pickup",
+    "PLAS": "pickup",
+    "BFUG": "pickup",
+    "CSAW": "pickup"
+  },
+  "probe_families": {
+    "TROO": {
+      "actor": "MT_TROOP",
+      "role": "enemy",
+      "nes_colors": [
+        7,
+        24,
+        38
+      ],
+      "scale_widths": [
+        12,
+        16,
+        20,
+        24
+      ]
+    },
+    "STIM": {
+      "actor": "MT_STIMPACK",
+      "role": "pickup",
+      "nes_colors": [
+        18,
+        56,
+        22
+      ],
+      "scale_widths": [
+        8,
+        12,
+        16
+      ]
+    }
+  },
+  "streamed": [
+    "the held weapon",
+    "projectiles and effects",
+    "decorations and barrels",
+    "players",
+    "MF_SHADOW fuzz",
+    "MF_TRANSLATION",
+    "families absent from the IWAD",
+    "actors over the per-generation tile, OAM or scanline budget"
+  ],
+  "runtime_identity": "engine sprite enum (info.h), frame and rotation; each lookup is checked against the engine's sprite width and offsets before admission",
+  "palette_note": "Each family keeps 15 local source colours and per-NES-colour error tables. Up to two 3-colour candidates per family become runtime sprite palettes 0/2; each 8x8 tile picks the best loaded palette, including fixed HUD palettes 1 (07 18 26) and 3 (12 38 16). 'palette_overrides' supplies reviewed candidates first; the block-clustered fit fills the rest. Automatic fits avoid NES olive and dark teal. Reviewed 2026-10-03 against user notes.",
+  "palette_overrides": {
+    "POSS": [
+      [
+        "0F",
+        "1A",
+        "27"
+      ]
+    ],
+    "SPOS": [
+      [
+        "0F",
+        "2D",
+        "16"
+      ],
+      [
+        "0F",
+        "1A",
+        "37"
+      ]
+    ],
+    "SUIT": [
+      [
+        "0A",
+        "1A",
+        "16"
+      ]
+    ],
+    "BON2": [
+      [
+        "0F",
+        "2D",
+        "1A"
+      ]
+    ],
+    "PMAP": [
+      [
+        "0F",
+        "16",
+        "28"
+      ]
+    ],
+    "CLIP": [
+      [
+        "0F",
+        "2D",
+        "28"
+      ]
+    ],
+    "SBOX": [
+      [
+        "00",
+        "16",
+        "10"
+      ],
+      [
+        "07",
+        "17",
+        "16"
+      ]
+    ],
+    "ROCK": [
+      [
+        "07",
+        "17",
+        "27"
+      ]
+    ],
+    "BROK": [
+      [
+        "07",
+        "17",
+        "27"
+      ],
+      [
+        "07",
+        "17",
+        "1A"
+      ]
+    ],
+    "MGUN": [
+      [
+        "2D",
+        "10",
+        "3D"
+      ],
+      [
+        "07",
+        "17",
+        "10"
+      ]
+    ],
+    "LAUN": [
+      [
+        "07",
+        "17",
+        "16"
+      ]
+    ],
+    "CSAW": [
+      [
+        "06",
+        "16",
+        "28"
+      ]
+    ]
+  },
+  "palette_exclusive": []
+}
