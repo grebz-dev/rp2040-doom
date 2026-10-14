@@ -1,0 +1,20 @@
+Hardware capture in progress: 2026-09-22
+
+Console model/revision: NES-001
+Console region: NTSC
+Firmware: fcpico_testpattern.uf2
+
+Observed display:
+- Console prints "MEMORY 2048B OK" and then shows no pattern.
+- `pattern 1` is acknowledged over serial but does not make a checkerboard visible.
+- The FC PICO LED blinks.
+- No startup banner was observed after opening the USB serial connection.
+
+Stats after approximately 60 seconds:
+ fps=56.44 conversion_us=0/0/0 ppu_count=15490 histogram=12,0,0,0,5495,0,0,0,0 resyncs=2 timeouts=0 dma_stops=12 apu_drops=0 free_zone=0
+
+Follow-up firmware validation:
+- Parent commit `73a6df2`, UF2 SHA-256
+  `be283708ba21e4ffa75ad4dec665461cd52db9220888d86888096f8051389cbf`.
+- Test patterns appear successfully on the same NES-001.
+- No follow-up stats line was captured in this report.

@@ -1,0 +1,25 @@
+Table dumps after approximately 60 seconds, 2026-09-22
+
+pal (16 bytes):
+0f 00 10 20 0f 06 16 26 0f 09 19 29 0f 01 21 31
+
+attr (64 bytes):
+1b e4 1b e4 1b e4 1b e4 1b e4 1b e4 1b e4 1b e4
+1b e4 1b e4 1b e4 1b e4 1b e4 1b e4 1b e4 1b e4
+1b e4 1b e4 1b e4 1b e4 1b e4 1b e4 1b e4 1b e4
+1b e4 1b e4 1b e4 1b e4 1b e4 1b e4 1b e4 1b e4
+
+mailbox (128 bytes):
+00 fc 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+ff 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+Interpretation:
+- The application-side desired palette and attribute tables are correct.
+- The next mailbox is empty after the v1 incremental commands have drained.
+- These values do not prove that the console received the required init-time bulk upload.

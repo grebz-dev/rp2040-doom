@@ -1,0 +1,28 @@
+{
+  "period_ns": 40,
+  "qualifying_reads": 1022,
+  "line_counts": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+  ],
+  "prerender_reads": 66,
+  "rd_low_width_histogram": {
+    "3": 1,
+    "4": 251,
+    "5": 2454
+  },
+  "vblank_gap_samples": 401,
+  "write_bursts": []
+}

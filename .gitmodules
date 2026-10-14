@@ -4,3 +4,7 @@
 [submodule "fcpico/external/fc-pico"]
 	path = fcpico/external/fc-pico
 	url = https://github.com/impact-soft/fc-pico.git
+[submodule "fcpico/sim/mesen2/Mesen2"]
+	path = fcpico/sim/mesen2/Mesen2
+	url = https://github.com/grebz-dev/MesenCE-FC-PICO.git
+	branch = fc-pico
