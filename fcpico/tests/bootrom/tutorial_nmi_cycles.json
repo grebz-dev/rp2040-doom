@@ -1,0 +1,102 @@
+{
+  "rom": "fcpico/external/fc-pico/tutorial_project/BOOTROM/rom.NES",
+  "ntsc_vblank_cycles": 2273,
+  "rows": [
+    {
+      "apu_pairs": 0,
+      "sprite_dma": "on",
+      "raw_cycles": 636,
+      "corrected_cycles": 1149,
+      "total_cycles": 1156,
+      "critical_section_cycles": 577,
+      "entry_cycles": 7,
+      "extra_cycles": 513,
+      "reads_2007": 65,
+      "num_writes": 10
+    },
+    {
+      "apu_pairs": 0,
+      "sprite_dma": "off",
+      "raw_cycles": 631,
+      "corrected_cycles": 631,
+      "total_cycles": 638,
+      "critical_section_cycles": 577,
+      "entry_cycles": 7,
+      "extra_cycles": 0,
+      "reads_2007": 65,
+      "num_writes": 9
+    },
+    {
+      "apu_pairs": 8,
+      "sprite_dma": "on",
+      "raw_cycles": 828,
+      "corrected_cycles": 1341,
+      "total_cycles": 1348,
+      "critical_section_cycles": 577,
+      "entry_cycles": 7,
+      "extra_cycles": 513,
+      "reads_2007": 65,
+      "num_writes": 18
+    },
+    {
+      "apu_pairs": 8,
+      "sprite_dma": "off",
+      "raw_cycles": 823,
+      "corrected_cycles": 823,
+      "total_cycles": 830,
+      "critical_section_cycles": 577,
+      "entry_cycles": 7,
+      "extra_cycles": 0,
+      "reads_2007": 65,
+      "num_writes": 17
+    },
+    {
+      "apu_pairs": 16,
+      "sprite_dma": "on",
+      "raw_cycles": 1020,
+      "corrected_cycles": 1533,
+      "total_cycles": 1540,
+      "critical_section_cycles": 577,
+      "entry_cycles": 7,
+      "extra_cycles": 513,
+      "reads_2007": 65,
+      "num_writes": 26
+    },
+    {
+      "apu_pairs": 16,
+      "sprite_dma": "off",
+      "raw_cycles": 1015,
+      "corrected_cycles": 1015,
+      "total_cycles": 1022,
+      "critical_section_cycles": 577,
+      "entry_cycles": 7,
+      "extra_cycles": 0,
+      "reads_2007": 65,
+      "num_writes": 25
+    },
+    {
+      "apu_pairs": 24,
+      "sprite_dma": "on",
+      "raw_cycles": 1204,
+      "corrected_cycles": 1717,
+      "total_cycles": 1724,
+      "critical_section_cycles": 577,
+      "entry_cycles": 7,
+      "extra_cycles": 513,
+      "reads_2007": 65,
+      "num_writes": 34
+    },
+    {
+      "apu_pairs": 24,
+      "sprite_dma": "off",
+      "raw_cycles": 1199,
+      "corrected_cycles": 1199,
+      "total_cycles": 1206,
+      "critical_section_cycles": 577,
+      "entry_cycles": 7,
+      "extra_cycles": 0,
+      "reads_2007": 65,
+      "num_writes": 33
+    }
+  ]
+}
