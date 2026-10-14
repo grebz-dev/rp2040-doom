@@ -1,0 +1,32 @@
+{
+  "source": "doom1.whx",
+  "face_names": [
+    "STFST00",
+    "STFST01",
+    "STFST02",
+    "STFST10",
+    "STFST20",
+    "STFST30",
+    "STFGOD0",
+    "STFDEAD0",
+    "STFOUCH0",
+    "STFEVL0"
+  ],
+  "face_size": [
+    32,
+    32
+  ],
+  "visible_art_width": 28,
+  "tile_count": 119,
+  "tile_placement": {
+    "main": [
+      128,
+      119
+    ],
+    "spare": [
+      40,
+      0
+    ]
+  },
+  "mapping_order": "face, tile row, tile column"
+}

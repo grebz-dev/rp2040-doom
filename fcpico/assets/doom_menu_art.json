@@ -1,0 +1,55 @@
+{
+  "source": "doom1.whx",
+  "logo_source_patch": "M_DOOM",
+  "logo_size": [
+    64,
+    32
+  ],
+  "logo_tiles": 32,
+  "small_logo_size": [
+    56,
+    24
+  ],
+  "small_logo_tiles": 21,
+  "main_menu_labels": [
+    "NEW",
+    "OPTIONS",
+    "LOAD",
+    "SAVE",
+    "READ ME",
+    "QUIT"
+  ],
+  "episode_lines": [
+    [
+      "KNEE DEEP IN",
+      "THE DEAD"
+    ],
+    [
+      "SHORES OF HELL"
+    ],
+    [
+      "INFERNO"
+    ]
+  ],
+  "pair_tile_ids": {
+    " D": 0,
+    " O": 1,
+    "AD": 2,
+    "DE": 3,
+    "E ": 4,
+    "EE": 5,
+    "ES": 6,
+    "F ": 7,
+    "FE": 8,
+    "HE": 9,
+    "IN": 10,
+    "KN": 11,
+    "LL": 12,
+    "O ": 13,
+    "OR": 14,
+    "P ": 15,
+    "RN": 16,
+    "SH": 17,
+    "TH": 18
+  }
+}

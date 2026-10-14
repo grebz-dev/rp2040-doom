@@ -1,0 +1,71 @@
+{
+  "source": "doom1.whx",
+  "size": [
+    24,
+    24
+  ],
+  "tiles_per_face": 9,
+  "columns": 7,
+  "order": [
+    "STFST00",
+    "STFST01",
+    "STFST02",
+    "STFTR00",
+    "STFTL00",
+    "STFOUCH0",
+    "STFEVL0",
+    "STFKILL0",
+    "STFST10",
+    "STFST11",
+    "STFST12",
+    "STFTR10",
+    "STFTL10",
+    "STFOUCH1",
+    "STFEVL1",
+    "STFKILL1",
+    "STFST20",
+    "STFST21",
+    "STFST22",
+    "STFTR20",
+    "STFTL20",
+    "STFOUCH2",
+    "STFEVL2",
+    "STFKILL2",
+    "STFST30",
+    "STFST31",
+    "STFST32",
+    "STFTR30",
+    "STFTL30",
+    "STFOUCH3",
+    "STFEVL3",
+    "STFKILL3",
+    "STFST40",
+    "STFST41",
+    "STFST42",
+    "STFTR40",
+    "STFTL40",
+    "STFOUCH4",
+    "STFEVL4",
+    "STFKILL4",
+    "STFGOD0",
+    "STFDEAD0"
+  ],
+  "rgb_palette": [
+    [
+      131,
+      31,
+      31
+    ],
+    [
+      135,
+      87,
+      51
+    ],
+    [
+      207,
+      131,
+      83
+    ]
+  ],
+  "chr_bytes": 6048
+}
