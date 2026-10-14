@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: BSD-3-Clause
+name: fcpico-device
+
+on:
+  push:
+    paths: ["fcpico/**", "src/**", "CMakeLists.txt", ".github/workflows/fcpico-device.yml"]
+  pull_request:
+    paths: ["fcpico/**", "src/**", "CMakeLists.txt", ".github/workflows/fcpico-device.yml"]
+  workflow_dispatch:
+
+env:
+  PICO_SDK_TAG: "2.1.1"
+  ARM_GCC_RELEASE: "13.2.Rel1"
+
+jobs:
+  firmware:
+    name: RP2350 test-pattern and Doom firmware
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pristine FC PICO reference sources
+        run: git submodule update --init --depth 1 fcpico/external/fc-pico
+      - name: Build pinned native NESASM CE
+        run: |
+          git clone https://github.com/ClusterM/nesasm.git "$RUNNER_TEMP/nesasm"
+          git -C "$RUNNER_TEMP/nesasm" checkout 6fc41cda37b934aa29aa2639d0baa74424268e31
+          make -C "$RUNNER_TEMP/nesasm/source" all
+          echo "NESASM_BIN=$RUNNER_TEMP/nesasm/nesasm" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: pico-sdk
+          key: pico-sdk-${{ env.PICO_SDK_TAG }}-v1
+      - name: Fetch pico-sdk
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$PICO_SDK_TAG" https://github.com/raspberrypi/pico-sdk.git
+          git -C pico-sdk submodule update --init --depth 1
+      - uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ env.ARM_GCC_RELEASE }}
+      - name: Configure
+        run: >-
+          cmake -S fcpico -B build-rp2350 -G Ninja
+          -DCMAKE_BUILD_TYPE=MinSizeRel
+          -DPICO_SDK_PATH="$PWD/pico-sdk"
+          -DPICO_BOARD=fcpico
+          -DPICO_PLATFORM=rp2350-arm-s
+          -DFCPICO_BUILD_ENGINE=ON
+      - name: Print pinned compiler
+        run: arm-none-eabi-gcc --version
+      - name: Build firmware
+        run: cmake --build build-rp2350 --target fcpico_testpattern doom_tiny_fcpico
+      - name: Check flash layout and produce size report
+        run: |
+          python3 fcpico/tools/flash_layout_check.py build-rp2350/port/fcpico_testpattern.elf | tee size-report.txt
+          python3 fcpico/tools/flash_layout_check.py --whx doom1.whx build-rp2350/rp2040-doom/src/fcpico_doom.elf | tee -a size-report.txt
+          python3 fcpico/tools/check_device_ram.py --zone-kb 128 build-rp2350/rp2040-doom/src/fcpico_doom.elf | tee -a size-report.txt
+          arm-none-eabi-size -A build-rp2350/port/fcpico_testpattern.elf >> size-report.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fcpico-firmware
+          path: |
+            build-rp2350/port/fcpico_testpattern.uf2
+            build-rp2350/port/fcpico_testpattern.elf
+            build-rp2350/rp2040-doom/src/fcpico_doom.uf2
+            build-rp2350/rp2040-doom/src/fcpico_doom.elf
+            size-report.txt

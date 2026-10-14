@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: BSD-3-Clause
+name: fcpico-bootrom
+
+on:
+  push:
+    paths: ["fcpico/bootrom/**", "fcpico/tests/bootrom/**", "fcpico/tools/nes/**", ".github/workflows/fcpico-bootrom.yml"]
+  pull_request:
+    paths: ["fcpico/bootrom/**", "fcpico/tests/bootrom/**", "fcpico/tools/nes/**", ".github/workflows/fcpico-bootrom.yml"]
+  workflow_dispatch:
+
+jobs:
+  bootrom:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pristine FC PICO reference sources
+        run: git submodule update --init --depth 1 fcpico/external/fc-pico
+      - name: Build pinned native NESASM CE
+        run: |
+          git clone https://github.com/ClusterM/nesasm.git "$RUNNER_TEMP/nesasm"
+          git -C "$RUNNER_TEMP/nesasm" checkout 6fc41cda37b934aa29aa2639d0baa74424268e31
+          make -C "$RUNNER_TEMP/nesasm/source" all
+          echo "NESASM_BIN=$RUNNER_TEMP/nesasm/nesasm" >> "$GITHUB_ENV"
+      - name: Prove tutorial PRG and iNES header reproducibility
+        run: fcpico/bootrom/ci/tutorial_md5_gate.sh
+      - name: Assemble the boot ROM twice and check the permanent bank
+        run: |
+          fcpico/bootrom/build.sh
+          cp fcpico/bootrom/out/doom.nes "$RUNNER_TEMP/doom-first.nes"
+          fcpico/bootrom/build.sh
+          cmp "$RUNNER_TEMP/doom-first.nes" fcpico/bootrom/out/doom.nes
+      - name: Measure NMI timing and run boot-ROM tests
+        run: |
+          python3 -m venv "$RUNNER_TEMP/py"
+          "$RUNNER_TEMP/py/bin/python" -m pip install -r fcpico/tools/requirements.txt
+          "$RUNNER_TEMP/py/bin/python" -m pytest fcpico/tests/bootrom -q -s
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fcpico-bootrom
+          path: fcpico/bootrom/out/

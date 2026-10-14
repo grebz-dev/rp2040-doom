@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: BSD-3-Clause
+name: fcpico-host
+
+on:
+  push:
+    paths: ["fcpico/**", "src/fcpico/**", ".github/workflows/fcpico-host.yml"]
+  pull_request:
+    paths: ["fcpico/**", "src/fcpico/**", ".github/workflows/fcpico-host.yml"]
+  workflow_dispatch:
+
+jobs:
+  host:
+    name: Host tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pristine FC PICO reference sources
+        run: git submodule update --init --depth 1 fcpico/external/fc-pico
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: fcpico/tools/requirements.txt
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+          python3 -m pip install -r fcpico/tools/requirements.txt
+      - name: Configure host libraries
+        run: cmake -S fcpico -B build-host -G Ninja -DFCPICO_HOST_ONLY=ON
+      - name: Build
+        run: cmake --build build-host
+      - name: C tests
+        run: ctest --test-dir build-host --output-on-failure
+      - name: Python and PIO tests
+        run: python3 -m pytest fcpico/tests fcpico/sim/pioemu -q
+      - name: Generated protocol files are fresh
+        run: python3 fcpico/tools/gen_protocol.py --check
+
+  sanitizers:
+    name: ASan and UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+      - name: Configure
+        run: >-
+          cmake -S fcpico -B build-asan -G Ninja
+          -DFCPICO_HOST_ONLY=ON
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
+      - name: Build and test
+        run: cmake --build build-asan && ctest --test-dir build-asan --output-on-failure

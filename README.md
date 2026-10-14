@@ -1,3 +1,6 @@
+> **FC PICO branch:** this branch adds a port to the FC PICO Famicom/NES cartridge.
+> See [fcpico/README.md](fcpico/README.md) and [fcpico/KNOWN-ISSUES.md](fcpico/KNOWN-ISSUES.md).
+
 # RP2040 (+RP2350) Doom
 
 This is a port of Doom for RP2040 / RP2350 devices, derived from [Chocolate Doom](https://github.com/chocolate-doom/chocolate-doom).
