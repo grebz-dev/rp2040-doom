@@ -58,6 +58,11 @@ void M_SaveGame(int choice);
 #endif
 void M_ClearMenus (void);
 
+// Compact menu state for the FCPico native sprite overlay.  Zero means that
+// the active menu keeps Doom's original background rendering.
+int M_NativeMenuId(void);
+int M_NativeMenuSelection(void);
+
 extern uint8_t			inhelpscreens;
 extern isb_int8_t detailLevel;
 extern isb_int8_t screenblocks;

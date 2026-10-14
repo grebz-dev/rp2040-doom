@@ -200,6 +200,23 @@ vpatchname_t skullName[2] = {VPATCH_NAME(M_SKULL1), VPATCH_NAME(M_SKULL2)};
 
 // current menudef
 menu_t*	currentMenu;                          
+extern menu_t MainDef, EpiDef, NewDef, OptionsDef, SoundDef;
+
+int M_NativeMenuId(void)
+{
+    if (!menuactive || messageToPrint) return 0;
+    if (currentMenu == &MainDef) return 1;
+    if (currentMenu == &EpiDef && EpiDef.numitems <= 3) return 2;
+    if (currentMenu == &NewDef) return 3;
+    if (currentMenu == &OptionsDef) return 4;
+    if (currentMenu == &SoundDef) return 5;
+    return 0;
+}
+
+int M_NativeMenuSelection(void)
+{
+    return menuactive && itemOn >= 0 ? itemOn : 0;
+}
 //
 // PROTOTYPES
 //
@@ -1088,8 +1105,10 @@ void M_MusicVol(int choice)
 //
 void M_DrawMainMenu(void)
 {
+#if !FCPICO
     V_DrawPatchDirect(94, 2,
                       VPATCH_HANDLE(VPATCH_NAME(M_DOOM)));
+#endif
 }
 
 
@@ -1204,9 +1223,11 @@ void M_DrawOptions(void)
 		      W_CacheLumpName(DEH_String(detailNames[detailLevel]),
 			              PU_CACHE));
 #else
+#if NET_MENU
     // "Game" for Network
     V_DrawPatchDirect(OptionsDef.x + 105, OptionsDef.y + LINEHEIGHT * networkgame,
                       VPATCH_HANDLE(VPATCH_NAME(M_GAME)));
+#endif
 
 #endif
 
@@ -2461,6 +2482,17 @@ void M_Drawer (void)
 
     if (currentMenu->routine)
 	currentMenu->routine();         // call Draw routine
+
+    // Native FCPico menu sprites replace these label patches and the skull.
+    // Keep the menu routine above: it draws titles, sliders, and option values.
+#if FCPICO
+    // The full difficulty names are wider than eight NES sprites per line.
+    // Keep Doom's original styled patches until their native BG version lands.
+    int native_menu_id = M_NativeMenuId();
+    boolean native_menu = native_menu_id != 0 && native_menu_id != 3;
+#else
+    boolean native_menu = false;
+#endif
     
     // DRAW MENU
     x = currentMenu->x;
@@ -2469,18 +2501,21 @@ void M_Drawer (void)
 
     for (i=0;i<max;i++)
     {
+        if (!native_menu)
+        {
 #if !USE_WHD
-        name = DEH_String(currentMenu->menuitems[i].name);
+	    name = DEH_String(currentMenu->menuitems[i].name);
 
-	if (name[0])
-	{
-	    V_DrawPatchDirect (x, y, W_CacheLumpName(name, PU_CACHE));
-	}
+	    if (name[0])
+	    {
+	        V_DrawPatchDirect (x, y, W_CacheLumpName(name, PU_CACHE));
+	    }
 #else
-        if (currentMenu->menuitems[i].name) {
-            V_DrawPatchDirect (x, y, currentMenu->menuitems[i].name);
-        }
+	    if (currentMenu->menuitems[i].name) {
+	        V_DrawPatchDirect (x, y, currentMenu->menuitems[i].name);
+	    }
 #endif
+	}
 	y += LINEHEIGHT;
     }
 
@@ -2493,7 +2528,7 @@ void M_Drawer (void)
         if (!oldinhelpscreens) return;
     }
 #endif
-    if (x >= 0)
+    if (x >= 0 && !native_menu)
         V_DrawPatchDirect(x + SKULLXOFF, currentMenu->y - 5 + itemOn*LINEHEIGHT,
                              VPATCH_HANDLE(skullName[whichSkull]));
     #endif
@@ -2630,4 +2665,3 @@ void M_Init (void)
     opldev = M_CheckParm("-opldev") > 0;
 #endif
 }
-

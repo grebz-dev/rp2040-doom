@@ -56,6 +56,11 @@ void ST_Init (void);
 
 void ST_doPaletteStuff(void);
 
+/* Native FC PICO HUD captures the resolved face after ST_Ticker and the
+ * status visibility chosen by ST_Drawer, without exposing widget pointers. */
+int ST_NativeFaceIndex(void);
+boolean ST_NativeStatusVisible(void);
+
 // States for status bar code.
 typedef enum
 {

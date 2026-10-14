@@ -463,6 +463,10 @@ boolean D_GrabMouseCallback(void)
 //
 void D_RunFrame()
 {
+#if FCPICO && FCPICO_DIAGNOSTIC_ENGINE_DELAY
+    static boolean diag_first_frame = true;
+    if (diag_first_frame) printf("[DEBUG-hr3] D_RunFrame entered\n");
+#endif
 #if !DOOM_TINY
     int nowtime;
     int tics;
@@ -492,6 +496,12 @@ void D_RunFrame()
     I_StartFrame ();
 
     TryRunTics (); // will run at least one tic
+#if FCPICO && FCPICO_DIAGNOSTIC_ENGINE_DELAY
+    if (diag_first_frame) {
+        printf("[DEBUG-hr3] TryRunTics returned\n");
+        diag_first_frame = false;
+    }
+#endif
 
     S_UpdateSounds (players[consoleplayer].mo);// move positional sounds
 
@@ -512,6 +522,9 @@ void D_RunFrame()
 #else
         do {
             D_Display();
+#if FCPICO
+            I_FinishUpdate();
+#endif
         } while (wipestate);
 #endif
     }
@@ -1745,6 +1758,9 @@ void D_DoomMain (void)
 
         free(uc_filename);
 
+#if USE_WHD
+        M_StringCopy(demolumpname, myargv[p + 1], sizeof(demolumpname));
+#else
         if (D_AddFile(file))
         {
             M_StringCopy(demolumpname, lumpinfo[numlumps - 1]->name,
@@ -1758,6 +1774,7 @@ void D_DoomMain (void)
 
             M_StringCopy(demolumpname, myargv[p + 1], sizeof(demolumpname));
         }
+#endif
 
         printf("Playing demo %s.\n", file);
     }
@@ -1992,7 +2009,7 @@ void D_DoomMain (void)
     }
 #endif
 
-#if !NO_USE_ARGS
+#if !NO_USE_ARGS && !DOOM_TINY
     // Undocumented:
     // Invoked by setup to test the controls.
 
@@ -2125,4 +2142,3 @@ void D_DoomMain (void)
 
     D_DoomLoop ();  // never returns
 }
-

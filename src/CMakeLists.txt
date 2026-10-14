@@ -15,7 +15,9 @@ endforeach()
 # Common source files used by absolutely everything:
 cmake_policy(SET CMP0076 NEW)
 
-if (NOT PICO_SDK)
+if (FCPICO_SUPERBUILD)
+    set(I_PLATFORM fcpico)
+elseif (NOT PICO_SDK)
     set(I_PLATFORM sdl)
 else()
     set(I_PLATFORM pico)
@@ -23,10 +25,19 @@ endif()
 
 add_library(common INTERFACE)
 target_sources(common INTERFACE
-    i_main.c
     i_system.h
     m_argv.c             m_argv.h
     m_misc.c             m_misc.h)
+if (FCPICO_SUPERBUILD)
+    target_sources(common INTERFACE fcpico/ui_capture.c)
+    if(PICO_ON_DEVICE)
+        target_sources(common INTERFACE fcpico/i_main_fcpico.c)
+    else()
+        target_sources(common INTERFACE fcpico/host_main.c)
+    endif()
+else()
+    target_sources(common INTERFACE i_main.c)
+endif()
 
 target_compile_definitions(common INTERFACE
         #HACK_FINALE_E1M1=1
@@ -40,7 +51,11 @@ if (NOT PICO_SDK)
             i_system.c
     )
 else()
-    add_subdirectory(pico)
+    if (FCPICO_SUPERBUILD)
+        add_subdirectory(fcpico)
+    else()
+        add_subdirectory(pico)
+    endif()
 endif()
 
 target_link_libraries(common INTERFACE common_${I_PLATFORM})
@@ -119,10 +134,12 @@ target_sources(game INTERFACE
     w_merge.c           w_merge.h
     z_zone.c            z_zone.h
 
-    i_oplmusic.c
     i_sound.c
 
 )
+if (NOT FCPICO_SUPERBUILD)
+    target_sources(game INTERFACE i_oplmusic.c)
+endif()
 
 if (NOT PICO_SDK)
     add_library(game_sdl INTERFACE)
@@ -160,6 +177,9 @@ if (NOT PICO_SDK)
         )
 else()
     add_library(game_pico INTERFACE)
+    if (FCPICO_SUPERBUILD)
+        add_library(game_fcpico INTERFACE)
+    endif()
 endif()
 
 target_link_libraries(game INTERFACE game_${I_PLATFORM})
@@ -168,7 +188,10 @@ if(MSVC)
          "../win32/win_opendir.c" "../win32/win_opendir.h")
 endif()
 
-target_link_libraries(game INTERFACE common opl)
+target_link_libraries(game INTERFACE common)
+if (NOT FCPICO_SUPERBUILD)
+    target_link_libraries(game INTERFACE opl)
+endif()
 
 add_library(game_deh INTERFACE)
 target_sources(game_deh INTERFACE
@@ -483,7 +506,7 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
 
     target_link_libraries(doom_tiny${SUFFIX} PRIVATE small_doom_common)
 
-    if (PICO_SDK)
+    if (PICO_ON_DEVICE)
         pico_set_float_implementation(doom_tiny${SUFFIX} none)
         pico_set_double_implementation(doom_tiny${SUFFIX} none)
         pico_add_extra_outputs(doom_tiny${SUFFIX})
@@ -500,7 +523,7 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
 
         #NO_DRAW_MENU=1
         # SDK minimilization
-        PICO_TIME_DEFAULT_ALARM_POOL_DISABLED=1
+        $<$<NOT:$<BOOL:${FCPICO_SUPERBUILD}>>:PICO_TIME_DEFAULT_ALARM_POOL_DISABLED=1>
         PICO_TIME_DEFAULT_ALARM_POOL_MAX_TIMERS=1
         PICO_DISABLE_SHARED_IRQ_HANDLERS=1
         PICO_USE_OPTIMISTIC_SBRK=1
@@ -510,7 +533,7 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         USE_DIRECT_MIDI_LUMP=1
 
         NO_USE_NET=1 # standard networking
-        USE_PICO_NET=1
+        $<$<NOT:$<BOOL:${FCPICO_SUPERBUILD}>>:USE_PICO_NET=1>
         # for vgaboard
         PICO_DEFAULT_I2C=1
         PICO_DEFAULT_I2C_SDA_PIN=18
@@ -523,7 +546,7 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         SAVE_COMPRESSED=1
         LOAD_COMPRESSED=1
 
-        NO_USE_ARGS=1
+        NO_USE_ARGS=$<NOT:$<AND:$<BOOL:${FCPICO_SUPERBUILD}>,$<NOT:$<BOOL:${PICO_ON_DEVICE}>>>>
         NO_USE_SAVE_CONFIG=1
         NO_USE_FLOAT=1
 
@@ -566,7 +589,8 @@ function(add_doom_tiny SUFFIX RENDER_LIB)
         PICO_DEBUG_MALLOC=1
         EMU8950_NO_RATECONV=1
 
-        PICO_CORE1_STACK_SIZE=0x4f8
+        $<$<BOOL:${FCPICO_SUPERBUILD}>:PICO_CORE1_STACK_SIZE=0x1000>
+        $<$<NOT:$<BOOL:${FCPICO_SUPERBUILD}>>:PICO_CORE1_STACK_SIZE=0x4f8>
 
         NO_IERROR=1
     )
@@ -626,7 +650,7 @@ else()
     )
 endif()
 
-if (PICO_SDK)
+if (PICO_SDK AND NOT FCPICO_SUPERBUILD)
     add_doom_tiny("" render_newhope)
     add_library(tiny_settings INTERFACE)
     target_compile_definitions(tiny_settings INTERFACE
@@ -662,4 +686,55 @@ if (PICO_SDK)
     endif()
 endif()
 
-
+if (FCPICO_SUPERBUILD)
+    option(FCPICO_DIAGNOSTIC_NO_ENGINE
+        "Start USB and the cartridge bus without starting Doom" OFF)
+    option(FCPICO_DIAGNOSTIC_ENGINE_DELAY
+        "Wait for USB serial before starting Doom" OFF)
+    if(FCPICO_DIAGNOSTIC_NO_ENGINE AND FCPICO_DIAGNOSTIC_ENGINE_DELAY)
+        message(FATAL_ERROR "Choose only one FC PICO diagnostic mode")
+    endif()
+    option(FCPICO_WORLD_CAPTURE "Export PD actor visibility for host cosimulation" OFF)
+    if(FCPICO_WORLD_CAPTURE AND PICO_ON_DEVICE)
+        message(FATAL_ERROR "FCPICO_WORLD_CAPTURE is a host evidence mode")
+    endif()
+    add_library(fcpico_tiny_settings INTERFACE)
+    target_compile_definitions(fcpico_tiny_settings INTERFACE WHD_SUPER_TINY=1)
+    add_doom_tiny(_fcpico render_newhope)
+    if(FCPICO_WORLD_CAPTURE)
+        target_sources(doom_tiny_fcpico PRIVATE fcpico/world_capture.c)
+        target_compile_definitions(doom_tiny_fcpico PRIVATE FCPICO_WORLD_CAPTURE=1)
+    endif()
+    if(PICO_ON_DEVICE)
+        # fcvideo_build_tables() uses double precision when deriving the PLAYPAL
+        # lookup table. The shared tiny target disables it, which panics on the
+        # first rendered frame.
+        pico_set_double_implementation(doom_tiny_fcpico pico)
+    endif()
+    target_link_libraries(doom_tiny_fcpico PRIVATE
+        fcpico_tiny_settings fcapu fcinput fcvideo)
+    if(PICO_ON_DEVICE)
+        target_link_libraries(doom_tiny_fcpico PRIVATE fcbus_device)
+        target_compile_definitions(doom_tiny_fcpico PRIVATE FCPICO_ZONE_KB=128)
+    else()
+        target_link_libraries(doom_tiny_fcpico PRIVATE
+            fcbus_host host_shim Threads::Threads)
+    endif()
+    target_compile_definitions(doom_tiny_fcpico PRIVATE
+        FCPICO=1 NO_USE_ENDDOOM=1 USE_PICO_NET=0 USB_SUPPORT=0
+        TINY_WAD_ADDR=0x10080000
+        FCPICO_AUTO_SAVENAME=1)
+    if(PICO_ON_DEVICE)
+        set_target_properties(doom_tiny_fcpico PROPERTIES OUTPUT_NAME fcpico_doom)
+        if(FCPICO_DIAGNOSTIC_NO_ENGINE)
+            target_compile_definitions(doom_tiny_fcpico PRIVATE FCPICO_DIAGNOSTIC_NO_ENGINE=1)
+        endif()
+        if(FCPICO_DIAGNOSTIC_ENGINE_DELAY)
+            target_compile_definitions(doom_tiny_fcpico PRIVATE FCPICO_DIAGNOSTIC_ENGINE_DELAY=1)
+        endif()
+        pico_enable_stdio_usb(doom_tiny_fcpico 1)
+        pico_enable_stdio_uart(doom_tiny_fcpico 0)
+    else()
+        set_target_properties(doom_tiny_fcpico PROPERTIES OUTPUT_NAME fcpico_doom_host)
+    endif()
+endif()

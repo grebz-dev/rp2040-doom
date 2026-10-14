@@ -616,7 +616,14 @@ void TryRunTics(void) {
     // is called.
 
     if (singletics) {
+#if FCPICO && !PICO_ON_DEVICE
+        /* Host replays: N game tics per displayed frame, like the device. */
+        extern int fcpico_tics_per_frame;
+        for (int tic = 0; tic < fcpico_tics_per_frame; ++tic)
+            BuildNewTic();
+#else
         BuildNewTic();
+#endif
     } else {
         NetUpdate();
     }
@@ -648,6 +655,10 @@ void TryRunTics(void) {
 
     if (counts < 1)
         counts = 1;
+#if FCPICO && !PICO_ON_DEVICE
+    if (singletics)
+        counts = availabletics;
+#endif
 
     // wait for new tics if needed
     while (!PlayersInGame() || lowtic < gametic / ticdup + counts) {
@@ -702,10 +713,12 @@ void TryRunTics(void) {
                 local_playeringame[j] = set->cmds[j].ingame;
                 lplayer_count += local_playeringame[j];
             }
+#if USE_PICO_NET
             if (net_client_connected && lplayer_count < 2) {
                 net_client_connected = false;
                 piconet_stop();
             }
+#endif
 #endif
 
 //#define DUMP_TICS PICO_BUILD

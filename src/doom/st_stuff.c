@@ -437,6 +437,9 @@ static int	st_facecount = 0;
 // current face index, used by w_faces
 static isb_int8_t 	st_faceindex = 0;
 
+int ST_NativeFaceIndex(void) { return st_faceindex; }
+boolean ST_NativeStatusVisible(void) { return st_statusbaron; }
+
 // holds key-type for each key box on bar
 static isb_int8_t 	keyboxes[3];
 
@@ -493,8 +496,11 @@ void ST_updateFaceWidget(void)
     angle_t	badguyangle;
     angle_t	diffang;
     static int	lastattackdown = -1;
+    static int oldbonuscount = 0;
     static int	priority = 0;
     boolean	doevilgrin;
+    boolean newpickup = plyr->bonuscount > oldbonuscount;
+    oldbonuscount = plyr->bonuscount;
 
     if (priority < 10)
     {
@@ -512,7 +518,7 @@ void ST_updateFaceWidget(void)
 	if (plyr->bonuscount)
 	{
 	    // picking up bonus
-	    doevilgrin = false;
+	    doevilgrin = newpickup;
 
 	    for (i=0;i<NUMWEAPONS;i++)
 	    {
@@ -524,7 +530,7 @@ void ST_updateFaceWidget(void)
 	    }
 	    if (doevilgrin) 
 	    {
-		// evil grin if just picked up weapon
+		// evil grin when a pickup raises the bonus counter
 		priority = 8;
 		st_facecount = ST_EVILGRINCOUNT;
 		st_faceindex = ST_calcPainOffset() + ST_EVILGRINOFFSET;
@@ -1022,7 +1028,14 @@ void ST_createWidgets(void)
 		  ST_AMMOX,
 		  ST_AMMOY,
 		  tallnum,
+#if FCPICO
+                  // The initial ready weapon can be the fist (am_noammo).
+                  // ST_updateWidgets redirects the placeholder before drawing.
+                  &plyr->ammo[weaponinfo[plyr->readyweapon].ammo == am_noammo
+                              ? 0 : weaponinfo[plyr->readyweapon].ammo],
+#else
 		  &plyr->ammo[weaponinfo[plyr->readyweapon].ammo],
+#endif
 		  &st_statusbaron,
 		  ST_AMMOWIDTH );
 
