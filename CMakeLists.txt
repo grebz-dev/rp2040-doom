@@ -2,17 +2,24 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 cmake_minimum_required(VERSION 3.13)
 
-# We use PICO_SDK_PATH being set as an indicator that we're doing a Pico BUILD
-if (PICO_SDK_PATH)
+# We use PICO_SDK_PATH being set as an indicator that we're doing a Pico BUILD.
+# The FC PICO parent has already imported and initialised the SDK.
+if (PICO_SDK_PATH AND NOT FCPICO_SUPERBUILD)
     include(pico_sdk_import.cmake)
-    include(pico_extras_import.cmake)
+    # pico-extras is needed by the VGA/audio targets, but not by the FC PICO adapter or
+    # by a configure-only pico-sdk host build.
+    if (PICO_EXTRAS_PATH OR PICO_EXTRAS_FETCH_FROM_GIT)
+        include(pico_extras_import.cmake)
+    endif()
 endif()
 
-project("Chocolate Doom" VERSION 3.0.0 LANGUAGES C CXX)
+if (NOT FCPICO_SUPERBUILD)
+    project("Chocolate Doom" VERSION 3.0.0 LANGUAGES C CXX)
+endif()
 enable_language(CXX)
 set(CMAKE_CXX_STANDARD 14)
 
-if (PICO_SDK_PATH)
+if (PICO_SDK_PATH AND NOT FCPICO_SUPERBUILD)
     # we are using git@github.com:liamfraser/tinyusb.git as it has some RP2040 fixes that aren't upstreamed yet
     #set(PICO_TINYUSB_PATH ${CMAKE_CURRENT_LIST_DIR}/3rdparty/tinyusb)
     # this only affects device builds device, but we want to use zone for malloc in this case so we don't have two separate elastic spaces and can fit more in
@@ -24,6 +31,15 @@ if (PICO_SDK_PATH)
     endif()
 endif()
 
+if (FCPICO_SUPERBUILD)
+    # project() belongs to the parent, but the generated engine config and
+    # Windows resource still need the engine's own package version.
+    set(PROJECT_VERSION "3.0.0")
+    set(PROJECT_VERSION_MAJOR 3)
+    set(PROJECT_VERSION_MINOR 0)
+    set(PROJECT_VERSION_PATCH 0)
+endif()
+
 set(CMAKE_C_STANDARD 11)
 
 # Autotools variables
@@ -33,8 +49,14 @@ set(top_builddir ${CMAKE_CURRENT_BINARY_DIR})
 # AC_INIT variables
 set(PACKAGE_NAME "${PROJECT_NAME}")
 set(PACKAGE_TARNAME "chocolate-doom")
-set(PACKAGE_VERSION "${PROJECT_VERSION}")
-set(PACKAGE_STRING "${PROJECT_NAME} ${PROJECT_VERSION}")
+if (FCPICO_SUPERBUILD)
+    set(PACKAGE_NAME "Chocolate Doom")
+    set(PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
+else()
+    set(PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(PACKAGE_STRING "${PROJECT_NAME} ${PROJECT_VERSION}")
+endif()
 set(PACKAGE_BUGREPORT "chocolate-doom-dev-list@chocolate-doom.org")
 
 string(REGEX REPLACE " Doom$" "" PACKAGE_SHORTNAME "${PACKAGE_NAME}")
