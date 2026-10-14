@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+
+import pytest
 
 from nmi_harness import NmiHarness, build_mailbox, load_ines
 
@@ -14,9 +18,19 @@ sys.path.insert(0, str(ROOT / "fcpico/tools"))
 from fcpico import protocol  # noqa: E402
 
 
+def _nesasm() -> Path:
+    pinned = ROOT / ".build/tools/nesasm/nesasm"
+    if pinned.exists():
+        return pinned
+    found = os.environ.get("NESASM_BIN") or shutil.which("nesasm")
+    if not found:
+        pytest.skip("pinned NESASM is not built")
+    return Path(found)
+
+
 def test_native_text_commands_defer_oam_and_fit_vblank(tmp_path: Path) -> None:
     subprocess.run([sys.executable, str(ROOT / "fcpico/tools/build_native_status_probe.py"),
-                    "--output", str(tmp_path)], check=True)
+                    "--output", str(tmp_path), "--nesasm", str(_nesasm())], check=True)
     rom = load_ines(tmp_path / "probe.nes")
     pairs = [(reg, (index + 1) & 255) for index, reg in enumerate(
         (0, 1, 2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 0x15, 0x17))]

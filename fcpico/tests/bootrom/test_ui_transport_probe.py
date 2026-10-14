@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+
+import pytest
 
 from nmi_harness import NmiHarness, build_mailbox, load_ines
 
@@ -14,9 +18,19 @@ sys.path.insert(0, str(ROOT / "fcpico/tools"))
 from fcpico import protocol  # noqa: E402
 
 
+def _nesasm() -> Path:
+    pinned = ROOT / ".build/tools/nesasm/nesasm"
+    if pinned.exists():
+        return pinned
+    found = os.environ.get("NESASM_BIN") or shutil.which("nesasm")
+    if not found:
+        pytest.skip("pinned NESASM is not built")
+    return Path(found)
+
+
 def test_v3_receiver_copies_snapshot_with_max_audio(tmp_path: Path) -> None:
     subprocess.run([sys.executable, str(ROOT / "fcpico/tools/build_ui_transport_probe.py"),
-                    "--output", str(tmp_path)], check=True)
+                    "--output", str(tmp_path), "--nesasm", str(_nesasm())], check=True)
     payload = bytearray(build_mailbox([(i, i + 1) for i in range(15)],
                                       size=protocol.FC_COM_BUF_SIZE_V3))
     payload[protocol.MBX_FLAGS] = (protocol.MBX_FLAG_V2 | protocol.MBX_FLAG_V3 |
