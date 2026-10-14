@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause
+
+set(FCPICO_PICO_SDK_VERSION "2.1.1")
+set(FCPICO_ARM_GCC_VERSION "13.2.Rel1")
+set(FCPICO_PICOTOOL_VERSION "2.1.1")

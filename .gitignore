@@ -57,3 +57,13 @@ GTAGS
 *.wad
 *.whd
 /cmake-*/
+
+# FC PICO cartridge port
+__pycache__/
+*.pyc
+/fcpico/.venv
+/fcpico/bootrom/out/
+/fcpico/bootrom/src/PG_generated.asm
+/.build/
+/build-*/
+/fcpico/assets/*_edit.png

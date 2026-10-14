@@ -1,0 +1,132 @@
+# SPDX-License-Identifier: BSD-3-Clause
+"""CI gate for the generated protocol files:
+
+    tools/gen_protocol.py --check: generated 6502 include and Python
+    constants match the header.
+
+This test runs that check as a subprocess (so it exercises the real CLI, not
+just the library functions), then separately sanity-checks the already
+-generated tools/fcpico/protocol.py and bootrom/gen/protocol.inc that
+`gen_protocol.py` (without --check) was run to produce.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+from fcpico import protocol
+
+DOOM_ROOT = Path(__file__).resolve().parents[2]
+GEN_SCRIPT = DOOM_ROOT / "tools" / "gen_protocol.py"
+HEADER_PATH = DOOM_ROOT / "fcbus" / "fcbus_protocol.h"
+ASM_OUT_PATH = DOOM_ROOT / "bootrom" / "gen" / "protocol.inc"
+
+
+def test_generator_check_is_clean() -> None:
+    """`gen_protocol.py --check` must exit 0: nothing on disk is stale.
+
+    Run with a cwd other than fcpico/ to prove the script resolves its paths
+    from its own location, not from the current working directory.
+    """
+    result = subprocess.run(
+        [sys.executable, str(GEN_SCRIPT), "--check"],
+        cwd=str(Path(__file__).resolve().parent),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        "generated files are stale; run `python3 tools/gen_protocol.py` "
+        f"from fcpico/ to refresh them.\nstdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}"
+    )
+
+
+def _header_names() -> set[str]:
+    """Independent re-scan of fcbus_protocol.h's exported #define names.
+
+    Deliberately does not import gen_protocol.py's own parser: this check
+    exists to catch the generator silently dropping or misnaming a
+    constant, so it uses a separate (simpler) extraction.
+    """
+    text = HEADER_PATH.read_text(encoding="utf-8")
+    define_re = re.compile(r"^\s*#define\s+([A-Za-z_]\w*)\s*(.*)$")
+    names: set[str] = set()
+    for line in text.splitlines():
+        code, _, _comment = line.partition("//")
+        m = define_re.match(code)
+        if m and m.group(2).strip():
+            names.add(m.group(1))
+    return names
+
+
+def test_every_header_name_is_in_all() -> None:
+    header_names = _header_names()
+    assert header_names, "found no #define lines in fcbus_protocol.h -- parser is broken"
+    assert header_names == set(protocol.ALL)
+
+
+def test_all_matches_module_attributes() -> None:
+    for name, value in protocol.ALL.items():
+        assert getattr(protocol, name) == value, f"protocol.{name} != ALL[{name!r}]"
+
+
+def test_a_few_known_values() -> None:
+    assert protocol.PF_MAGIC_NO == 0xFC
+    assert protocol.PF_COM_NONE == 0x00
+    assert protocol.FP_COM_INI == 0xFF
+    assert protocol.KEY_A == 0x80
+    assert protocol.KEY_RIGHT == 0x01
+    assert protocol.FCBUS_PROTOCOL_V2 == 2
+    assert protocol.MBX_ZP_LO == 0x20
+    assert protocol.MBX_ZP_HI == 0xC0
+    assert protocol.PPU_COUNT_VAL_V1 == 15490
+    assert protocol.PPU_COUNT_VAL_V2 == 15554
+
+
+def test_sections_cover_every_name_exactly_once() -> None:
+    seen: list[str] = []
+    for names in protocol.SECTIONS.values():
+        seen.extend(names)
+    assert len(seen) == len(set(seen)), "a name appears in more than one section"
+    assert set(seen) == set(protocol.ALL)
+
+
+def test_asm_aliases_point_at_real_names() -> None:
+    assert protocol.ASM_ALIASES, "expected at least the PF_MAGIC_CODE alias"
+    for alias, canonical in protocol.ASM_ALIASES.items():
+        assert canonical in protocol.ALL, f"{alias} aliases undefined name {canonical}"
+        assert alias not in protocol.ALL, f"alias {alias} collides with a real constant"
+
+
+# ---------------------------------------------------------------------------
+# bootrom/gen/protocol.inc shape.
+# ---------------------------------------------------------------------------
+
+_EQU_LINE_RE = re.compile(
+    r"^[A-Z_][A-Z0-9_]*\tEQU\t(\$[0-9A-F]+|-?[0-9]+|[A-Z_][A-Z0-9_]*)(\s*;.*)?$"
+)
+
+
+def test_protocol_inc_lines_match_expected_shape() -> None:
+    assert ASM_OUT_PATH.is_file(), f"{ASM_OUT_PATH} does not exist; run tools/gen_protocol.py"
+    text = ASM_OUT_PATH.read_text(encoding="utf-8")
+    bad: list[tuple[int, str]] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith(";"):
+            continue
+        if not _EQU_LINE_RE.match(line):
+            bad.append((lineno, line))
+    assert not bad, f"lines not matching the expected 'NAME<TAB>EQU<TAB>value' shape: {bad}"
+
+
+def test_protocol_inc_has_generated_header_and_spdx() -> None:
+    text = ASM_OUT_PATH.read_text(encoding="utf-8")
+    first_line = text.splitlines()[0]
+    assert first_line.startswith(";"), "protocol.inc must start with a comment"
+    assert "SPDX-License-Identifier: BSD-3-Clause" in text
+    assert "GENERATED by tools/gen_protocol.py" in text
+    assert "do not edit" in text

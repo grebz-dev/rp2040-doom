@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Host-side Python dependencies for fcpico/tools and fcpico/tests (Python 3.11+). Versions are intentionally left
+# unpinned; for reference, these are the versions installed and known-good
+# at the time this file was written (from `pip3 show <package>`):
+#
+#   numpy==2.4.6
+#   pillow==12.3.0
+#   pytest==9.1.1
+#   py65==1.2.0
+#   rp2040-pio-emulator==0.88.0
+#   adafruit-circuitpython-pioasm==1.3.8
+#   unicorn==2.1.4 (tools/perf Cortex-M33 benchmarks)
+#
+numpy
+pillow
+pytest
+py65
+rp2040-pio-emulator
+adafruit-circuitpython-pioasm
+unicorn
