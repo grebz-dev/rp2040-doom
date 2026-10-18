@@ -101,12 +101,30 @@ in the repository root), `PICO_SDK_PATH`, `PICOTOOL_DIR`, `NESASM_BIN`,
 `BUILD_DIR`, `JOBS`. `fcpico/tools/build_firmware.sh --bootstrap-tools` builds
 the pinned picotool and NESASM into `.build/tools` if they are missing.
 
+- `FCPICO_GRAPHICS` picks how much the console draws natively (default
+  `world`). The firmware follows the protocol the console ROM negotiates, so
+  each profile is a console ROM, plus the world atlas for `world`:
+
+  | `FCPICO_GRAPHICS` | Console ROM | Native | Streamed |
+  | --- | --- | --- | --- |
+  | `world` | `20DOOM-05-9031` (v5) | Status bar, menus, enemies, pickups | 3D view and other actors |
+  | `hud` | `20DOOM-04-9016` (v4) | Status bar and menus | 3D view and all actors |
+  | `streamed` | `20DOOM-02-0002` (v2) | Nothing | Everything, including Doom's own status bar and menus |
+
+  `hud` and `streamed` ignore `FCPICO_WORLD_WAD`. The default `BUILD_DIR` is
+  `.build/fcpico-device` for `world` and `.build/fcpico-device-<profile>`
+  otherwise, and `build-info.txt` records the profile. Only `world` is the
+  current hardware candidate. `hud` and `streamed` pair earlier
+  hardware-tested ROMs with current firmware, a combination checked only in
+  host tests and MesenCE so far. `streamed` cannot use the v4 stream
+  compaction, which skips the 448 reads of the native text row, so each frame
+  is 15554 reads instead of 15122.
 - The WADs are optional. They enable the generated APU audio bank and the
   native world sprite atlas. Both are generated from your local WAD into build
   outputs and are never committed.
-- `build_device.sh` generates the current console ROM source
-  (`tools/build_world_sprite_rom.py`) and builds the hardware-validated device
-  profile: `MinSizeRel`, `FCPICO_DIAGNOSTIC_ENGINE_DELAY=ON`, and a picotool-generated
+- `build_device.sh` generates the profile's console ROM source
+  (`tools/build_world_sprite_rom.py` or `tools/build_native_status_probe.py`)
+  and builds the hardware-validated device profile: `MinSizeRel`, `FCPICO_DIAGNOSTIC_ENGINE_DELAY=ON`, and a picotool-generated
   UF2. A plain CMake device configure assembles the committed
   `bootrom/src/PG_main.asm`, which is the older `20DOOM-02-0002` ROM.
 - Firmware UF2s must come from picotool. Do not wrap `fcpico_doom.bin` in UF2
