@@ -202,8 +202,16 @@ vpatchname_t skullName[2] = {VPATCH_NAME(M_SKULL1), VPATCH_NAME(M_SKULL2)};
 menu_t*	currentMenu;                          
 extern menu_t MainDef, EpiDef, NewDef, OptionsDef, SoundDef;
 
+static boolean native_menus = true;
+
+void M_SetNativeMenus(boolean enabled)
+{
+    native_menus = enabled;
+}
+
 int M_NativeMenuId(void)
 {
+    if (!native_menus) return 0;
     if (!menuactive || messageToPrint) return 0;
     if (currentMenu == &MainDef) return 1;
     if (currentMenu == &EpiDef && EpiDef.numitems <= 3) return 2;
@@ -1105,10 +1113,12 @@ void M_MusicVol(int choice)
 //
 void M_DrawMainMenu(void)
 {
-#if !FCPICO
+#if FCPICO
+    if (native_menus)
+        return;
+#endif
     V_DrawPatchDirect(94, 2,
                       VPATCH_HANDLE(VPATCH_NAME(M_DOOM)));
-#endif
 }
 
 

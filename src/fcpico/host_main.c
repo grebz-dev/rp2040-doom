@@ -323,7 +323,7 @@ static void usage(const char *program)
 {
     fprintf(stderr, "usage: %s --whx FILE [--demo N] [--frames N] [--lockstep] [--tics-per-frame N] "
                     "[--dump-8bit DIR] [--menu-at N] [--dump-stream DIR] "
-                    "[--pads FILE] [--warp EPISODE MAP] [--dump-apu FILE]\n", program);
+                    "[--pads FILE] [--warp EPISODE MAP] [--dump-apu FILE] [--streamed-ui]\n", program);
 }
 
 int main(int argc, char **argv)
@@ -381,6 +381,9 @@ int main(int argc, char **argv)
             /* Same recording format with every actor streamed (baseline). */
             world_off = true;
 #endif
+        } else if (strcmp(argv[i], "--streamed-ui") == 0) {
+            /* A v2 console: Doom draws its own menu patches and logo. */
+            M_SetNativeMenus(false);
         } else if (strcmp(argv[i], "--menu-at") == 0 && i + 1 < argc) {
             menu_at = (unsigned)atoi(argv[++i]);
             if (menu_at == 0) { usage(argv[0]); return 2; }

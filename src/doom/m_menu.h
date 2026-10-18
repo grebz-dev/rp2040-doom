@@ -62,6 +62,9 @@ void M_ClearMenus (void);
 // the active menu keeps Doom's original background rendering.
 int M_NativeMenuId(void);
 int M_NativeMenuSelection(void);
+// False while the console ROM predates native UI (protocol v2/v3): Doom then
+// draws its own menu patches and logo into the streamed picture.
+void M_SetNativeMenus(boolean enabled);
 
 extern uint8_t			inhelpscreens;
 extern isb_int8_t detailLevel;

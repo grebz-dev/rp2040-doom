@@ -6,6 +6,7 @@
 #include "fcbus_device.h"
 #include "i_audio_fcpico.h"
 #include "ui_capture.h"
+#include "doom/m_menu.h"
 #include "w_wad.h"
 #if FCPICO_WORLD_SPRITES
 #include "world_sprites.h"
@@ -295,6 +296,8 @@ void fcvideo_frame_end(int palette_num, int video_type)
 #endif
     fcui_status_t status;
     fcpico_ui_capture(&status, ui_generation);
+    /* Takes effect from the next drawn menu. */
+    M_SetNativeMenus(frame_proto >= FCBUS_PROTO_V4);
     bool native_status = frame_proto >= FCBUS_PROTO_V4 &&
         (status.flags & FCUI_FLAG_STATUS_VISIBLE);
     uint8_t frame_palette[MBX_PAL_LEN];
