@@ -9,6 +9,8 @@ console's PPU. The console's own 6502 runs a small boot ROM that uploads
 palettes and attributes, reads the controller, plays sound on the APU, and draws
 the status bar, menus, enemies and pickups as native NES tiles and sprites.
 
+![FC PICO Doom gameplay](docs/screenshots/gameplay-demo1.png)
+
 Current console ROM: `20DOOM-05-9031`. It has been tested on an NTSC NES-001. See
 [KNOWN-ISSUES.md](KNOWN-ISSUES.md) for current limitations.
 
@@ -284,6 +286,8 @@ host.
 
 ## Editing native art
 
+![Native status bar](docs/screenshots/native-hud.png)
+
 The native status face, menu logo and episode labels are 2-bit NES tiles in
 `assets/*.chr`, with tile maps and flips in the `.bin` and `.json` files. To
 edit them as pixel-exact PNGs:
@@ -306,6 +310,8 @@ World sprites are generated at build time from your IWAD
 (`tools/build_world_atlas.py`). `assets/world-sprite-scope.json` lists the
 sprite families, their reviewed palette overrides and exclusivity. Families
 outside the atlas are streamed with the background.
+
+![Native world sprites](docs/screenshots/world-sprites.png)
 
 ## Licensing
 

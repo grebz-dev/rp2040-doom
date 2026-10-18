@@ -1,5 +1,7 @@
 > **FC PICO branch:** this branch adds a port to the FC PICO Famicom/NES cartridge.
 > See [fcpico/README.md](fcpico/README.md) and [fcpico/KNOWN-ISSUES.md](fcpico/KNOWN-ISSUES.md).
+>
+> ![FC PICO Doom gameplay](fcpico/docs/screenshots/gameplay-demo2.png)
 
 # RP2040 (+RP2350) Doom
 
