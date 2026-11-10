@@ -690,7 +690,7 @@ if (FCPICO_SUPERBUILD)
     option(FCPICO_DIAGNOSTIC_NO_ENGINE
         "Start USB and the cartridge bus without starting Doom" OFF)
     option(FCPICO_DIAGNOSTIC_ENGINE_DELAY
-        "Wait for USB serial before starting Doom" OFF)
+        "Serial startup messages and bus statistics" OFF)
     if(FCPICO_DIAGNOSTIC_NO_ENGINE AND FCPICO_DIAGNOSTIC_ENGINE_DELAY)
         message(FATAL_ERROR "Choose only one FC PICO diagnostic mode")
     endif()

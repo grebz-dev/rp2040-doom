@@ -39,11 +39,14 @@ applies, and a workaround where one exists.
 
 ## Build and assets
 
-- **The device build needs the diagnostic startup profile.** Hardware builds
-  without `FCPICO_DIAGNOSTIC_ENGINE_DELAY=ON` (a 30-second startup countdown
-  plus bus statistics) failed to start, showing USB descriptor errors and
-  `PICO NOT FOUND` on the console. Which part of the profile is required has
-  not been isolated. `tools/build_device.sh` always enables it.
+- **Doom cannot start at power-on.** Starting Doom immediately breaks the
+  console's boot-ROM version check (`PICO NOT FOUND`) and USB enumeration,
+  even with Doom's bus output held back until the console negotiates. The
+  firmware idles for 3 seconds first, which fixes both on hardware. Why the
+  idle window is needed, and its minimum length, have not been isolated.
+- **Device builds without `FCPICO_DIAGNOSTIC_ENGINE_DELAY=ON` are untested**
+  since the startup idle window was found. Earlier builds without it failed
+  to start. `tools/build_device.sh` always enables it.
 - **A plain CMake device build embeds an old console ROM.** Without
   `tools/build_device.sh`, the firmware embeds `bootrom/src/PG_main.asm`
   (`20DOOM-02-0002`), the fully streamed profile. The current ROM is generated

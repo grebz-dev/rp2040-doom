@@ -23,8 +23,14 @@ int main(void)
     }
 #else
     puts("FC PICO DOOM video bring-up");
+    /* Starting Doom at power-on breaks the console's boot-ROM version check
+     * (PICO NOT FOUND) and USB enumeration on hardware, even with Doom's bus
+     * output held back. Idling here fixes both; 3 s is the tested value. */
+    for (unsigned waited_ms = 0; waited_ms < 3000; waited_ms += 100) {
+        fcpico_video_device_poll_bootsel();
+        sleep_ms(100);
+    }
 #if FCPICO_DIAGNOSTIC_ENGINE_DELAY
-    fcpico_video_device_poll_bootsel();
     puts("FC PICO diagnostic: entering D_DoomMain");
 #endif
     I_Init();
