@@ -43,8 +43,6 @@ typedef struct {
 } candidate_t;
 
 static fcworld_atlas_t atlas;
-static fcworld_patch_t pickup_range_enemy;
-static bool pickup_range_ok;
 static bool atlas_ok, link_ready, frame_enabled, raster_ready;
 static candidate_t candidates[MAX_CANDIDATES];
 static uint8_t candidate_count;
@@ -59,11 +57,6 @@ static fcworld_palette_state_t shown_state = {FCWORLD_MENU_PALETTES_INIT, 0};
 bool fcpico_world_init(const uint8_t *data, uint32_t size, uint32_t identity) {
     atlas_ok = fcworld_atlas_open(&atlas, data, size) && atlas.identity == identity &&
                atlas.sprite_count == NUMSPRITES;
-    /* Enemy fallback is size-based, so calibrate pickup proximity against one
-     * stable enemy pose rather than the much smaller pickup's footprint. */
-    bool flip;
-    pickup_range_ok = atlas_ok && fcworld_atlas_lookup(&atlas, SPR_TROO, 0, 0,
-                                                      &flip, &pickup_range_enemy);
     return atlas_ok;
 }
 
@@ -130,24 +123,30 @@ bool fcpico_world_defer(const vissprite_t *vis, int sprite, int frame, int rotat
         stats.streamed_mismatch++;
         return false;
     }
+    uint32_t previous = previous_step(id);
+    uint32_t iscale = (uint32_t)abs(vis->xiscale) >> detailshift;
+    bool pickup = (flags & (MF_SPECIAL | MF_COUNTKILL | MF_CORPSE)) == MF_SPECIAL;
+    /* Metadata lookup above is cheap. Clearly readable pickups return to the
+     * stream before native scale/layout, admission, raster or tile work. */
+    if (pickup && !fcworld_pickup_needs_native(p.patch.width, p.patch.height,
+                                               iscale, previous != 0)) {
+        stats.streamed_clarity++;
+        return false;
+    }
     p.x1 = (int16_t)vis->x1;
     p.x2 = (int16_t)vis->x2;
     p.startfrac = vis->startfrac;
     p.xiscale = vis->xiscale;
     p.texturemid = vis->texturemid;
-    p.iscale = (uint32_t)abs(vis->xiscale) >> detailshift;
+    p.iscale = iscale;
     p.centery = (int16_t)centery;
     p.view_x = (int16_t)viewwindowx;
     p.view_y = (int16_t)viewwindowy;
     p.view_width = (int16_t)viewwidth;
     p.view_height = (int16_t)viewheight;
-    uint32_t previous = previous_step(id);
     p.scale_step = fcworld_scale_step(p.iscale, previous);
     fcworld_box_t box;
-    bool pickup = (flags & (MF_SPECIAL | MF_COUNTKILL | MF_CORPSE)) == MF_SPECIAL;
     if (!fcworld_bounds(&p, &box) || !fcworld_actor_fits(fcworld_box_tiles(&box), previous != 0) ||
-        (pickup && (!pickup_range_ok ||
-                    !fcworld_pickup_in_range(&pickup_range_enemy, p.scale_step, previous != 0))) ||
         candidate_count == MAX_CANDIDATES) {
         stats.streamed_budget++;
         return false;

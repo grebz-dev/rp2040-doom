@@ -144,11 +144,17 @@ typedef struct {
 
 typedef struct { int16_t x, y; uint8_t w, h; } fcworld_box_t;
 
-/** Pickup proximity gate: apply the actor tile budget to a reference enemy at
- *  this quantised inverse scale, independently of the pickup's size/clipping.
- *  The engine supplies the atlas's front-facing idle imp patch. */
-bool fcworld_pickup_in_range(const fcworld_patch_t *enemy, uint32_t scale_step,
-                             bool was_native);
+/* Initial clarity thresholds in streamed output pixels. A native pickup
+ * switches to streamed when BOTH dimensions reach 16 pixels; once streamed,
+ * it requests native again only when EITHER dimension falls below 12 pixels.
+ * Tune against gameplay captures; these are independent of native tile cost. */
+#define FCWORLD_PICKUP_STREAM_PIXELS 16
+#define FCWORLD_PICKUP_NATIVE_PIXELS 12
+/** Cheap, unclipped projected-size check using patch dimensions and raw 16.16
+ *  inverse scale. Accounts for the stream's 4/5 horizontal and 28/25 vertical
+ *  mapping, without quantising, laying out or rasterizing a native sprite. */
+bool fcworld_pickup_needs_native(unsigned width, unsigned height, uint32_t iscale,
+                                 bool was_native);
 
 /** Native bounding box of the anchored, scale-quantised patch clipped to the
  *  view; false when nothing is on screen. */

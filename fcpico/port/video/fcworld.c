@@ -242,18 +242,14 @@ static bool layout(const fcworld_projection_t *p, layout_t *l) {
     return l->col_lo <= l->col_hi && l->row_lo <= l->row_hi;
 }
 
-bool fcworld_pickup_in_range(const fcworld_patch_t *enemy, uint32_t scale_step,
-                             bool was_native) {
-    fcworld_projection_t reference = {0};
-    reference.patch = *enemy;
-    reference.iscale = reference.scale_step = scale_step;
-    reference.xiscale = 65536;  /* position is irrelevant to the full dimensions */
-    layout_t l;
-    if (!layout(&reference, &l)) return false;
-    unsigned columns = (unsigned)(l.col_hi - l.col_lo + 8) / 8;
-    unsigned rows = (unsigned)(l.row_hi - l.row_lo + 8) / 8;
-    unsigned limit = was_native ? FCWORLD_ACTOR_STAY_TILES : FCWORLD_ACTOR_ENTER_TILES;
-    return columns <= limit && rows <= limit && fcworld_actor_fits(columns * rows, was_native);
+bool fcworld_pickup_needs_native(unsigned width, unsigned height, uint32_t iscale,
+                                 bool was_native) {
+    if (width == 0 || height == 0 || iscale == 0) return false;
+    unsigned threshold = was_native ? FCWORLD_PICKUP_STREAM_PIXELS : FCWORLD_PICKUP_NATIVE_PIXELS;
+    /* Compare full projected dimensions to the threshold without divisions.
+     * Screen clipping and native scale snapping must not affect clarity. */
+    return (uint64_t)width * 65536u * 4u < (uint64_t)threshold * iscale * 5u ||
+           (uint64_t)height * 65536u * 28u < (uint64_t)threshold * iscale * 25u;
 }
 
 static int layout_column(const layout_t *l, int n) {
