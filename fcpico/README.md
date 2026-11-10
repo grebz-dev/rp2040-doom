@@ -233,7 +233,10 @@ Set `DOTNET_ROOT` if Mesen cannot find its runtime.
   native scale/layout, admission, rasterization, palette and tile work. The
   host/device `clarity` counter reports these early streamed fallbacks. This
   removes native work for readable pickups; net frame-time savings need to be
-  measured on device. Enemy and corpse admission is unchanged.
+  measured on device. Live enemies retain their original admission rules.
+  Death animations remain eligible for native sprites, but their terminal
+  corpse pose (`tics == -1`) goes directly to the streamed renderer, bypassing
+  native admission and processing. Map-placed dead bodies also stay streamed.
 - `host_main.c` is the SDL-free host entry point. The pico-sdk functions the
   host platform lacks (multicore, alarms, hard assertions) come from
   `fcpico/sim/host_shim/`.

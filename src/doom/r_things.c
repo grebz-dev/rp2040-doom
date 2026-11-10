@@ -796,7 +796,12 @@ void R_ProjectSprite(mobj_t *thing) {
         vis->colormap = spritelights[index];
     }
 #if FCPICO_WORLD_SPRITES
-    if (fcpico_world_defer(vis, mobj_sprite(thing), mobj_frame(thing),
+    /* MF_CORPSE is set before the death animation. Keep falling enemies
+     * eligible, but stream their terminal pose (the engine's lying-still
+     * sentinel). Map-placed bodies have MF_DECORATION instead of MF_CORPSE. */
+    boolean streamed_remains = thing->tics == -1 &&
+        (thing->flags & (MF_CORPSE | MF_DECORATION));
+    if (!streamed_remains && fcpico_world_defer(vis, mobj_sprite(thing), mobj_frame(thing),
                            spriteframe_rotates(sprframe) ? (int)rot : 0, lump, flip,
                            (uint32_t)thing->flags, (uint32_t)(uintptr_t)thing))
         return;
