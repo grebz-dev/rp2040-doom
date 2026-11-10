@@ -455,11 +455,12 @@ void fcvideo_frame_end(int palette_num, int video_type)
                (unsigned long)stats->resyncs);
 #if FCPICO_WORLD_SPRITES
         const fcpico_world_stats_t *ws = fcpico_world_stats();
-        printf("world admitted=%lu candidates=%lu streamed=%lu/%lu/%lu gens=%lu packets=%lu "
+        printf("world admitted=%lu candidates=%lu streamed=%lu/%lu/%lu clarity=%lu gens=%lu packets=%lu "
                "resends=%lu tiles=%lu hits=%lu deferred=%lu busy_max=%lu stalls=%lu errors=%lu\n",
                (unsigned long)ws->admitted, (unsigned long)ws->candidates,
                (unsigned long)ws->streamed_budget, (unsigned long)ws->streamed_effect,
-               (unsigned long)ws->streamed_lookup, (unsigned long)world.stats.generations,
+               (unsigned long)ws->streamed_lookup, (unsigned long)ws->streamed_clarity,
+               (unsigned long)world.stats.generations,
                (unsigned long)world.stats.packets, (unsigned long)world.stats.resends,
                (unsigned long)world.stats.chr_tiles, (unsigned long)world.stats.cache_hits,
                (unsigned long)world.stats.deferred_heartbeats,

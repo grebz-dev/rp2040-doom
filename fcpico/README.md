@@ -221,12 +221,19 @@ Set `DOTNET_ROOT` if Mesen cannot find its runtime.
 - `world_sprites.c` defers eligible enemies and pickups during projection,
   admits them after BSP, and rasterizes them against the renderer's depth
   information. Admitted actors stay out of the background stream; the rest are
-  streamed as before. Pickups also switch to streamed rendering when a
-  front-facing idle imp at the same camera depth would exceed the actor tile
-  budget (12 tiles to enter, 16 to stay native). This proximity check uses the
-  imp patch from the atlas, so small or screen-clipped pickups cannot stay
-  native just because their own visible footprint is small. Enemy admission
-  is unchanged; their actual sprite size still determines their fallback.
+  streamed as before. Pickups use native sprites for far-object clarity and
+  return to streamed rendering once both projected dimensions reach 16 output
+  pixels. After switching, either dimension must fall below 12 pixels to
+  request native rendering again. These initial thresholds are named
+  `FCWORLD_PICKUP_STREAM_PIXELS` / `FCWORLD_PICKUP_NATIVE_PIXELS` in
+  `port/video/fcworld.h` for tuning against gameplay captures. The check uses
+  full patch dimensions and raw camera scale, including the stream's 4/5
+  horizontal and 28/25 vertical mapping, independently of screen clipping or
+  native scale snapping. It runs after atlas metadata validation and before
+  native scale/layout, admission, rasterization, palette and tile work. The
+  host/device `clarity` counter reports these early streamed fallbacks. This
+  removes native work for readable pickups; net frame-time savings need to be
+  measured on device. Enemy and corpse admission is unchanged.
 - `host_main.c` is the SDL-free host entry point. The pico-sdk functions the
   host platform lacks (multicore, alarms, hard assertions) come from
   `fcpico/sim/host_shim/`.
