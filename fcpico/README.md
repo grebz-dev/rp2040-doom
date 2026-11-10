@@ -7,7 +7,7 @@ played on an unmodified Famicom or NES. The engine is this repository's
 each Doom frame, converts it to NES pattern data, and streams it to the
 console's PPU. The console's own 6502 runs a small boot ROM that uploads
 palettes and attributes, reads the controller, plays sound on the APU, and draws
-the status bar, menus, enemies and pickups as native NES tiles and sprites.
+the status bar, menus, enemies, pickups and scenery as native NES tiles and sprites.
 
 ![FC PICO Doom gameplay](docs/screenshots/gameplay-demo1.png)
 
@@ -107,7 +107,7 @@ the pinned picotool and NESASM into `.build/tools` if they are missing.
 
   | `FCPICO_GRAPHICS` | Console ROM | Native | Streamed |
   | --- | --- | --- | --- |
-  | `world` | `20DOOM-05-9031` (v5) | Status bar, menus, enemies, pickups | 3D view and other actors |
+  | `world` | `20DOOM-05-9031` (v5) | Status bar, menus, enemies, pickups, scenery | 3D view and other actors |
   | `hud` | `20DOOM-04-9016` (v4) | Status bar and menus | 3D view and all actors |
   | `streamed` | `20DOOM-02-0002` (v2) | Nothing | Everything, including Doom's own status bar and menus |
 
@@ -218,25 +218,33 @@ Set `DOTNET_ROOT` if Mesen cannot find its runtime.
 - `i_sound_fcpico.c` forwards sound and music to the APU register sequencer
   (`port/apu/`), driven by console heartbeat interrupts. It uses no ADPCM, OPL
   or I2S.
-- `world_sprites.c` defers eligible enemies and pickups during projection,
+- `world_sprites.c` defers eligible enemies, pickups and scenery during projection,
   admits them after BSP, and rasterizes them against the renderer's depth
   information. Admitted actors stay out of the background stream; the rest are
-  streamed as before. Pickups use native sprites for far-object clarity and
+  streamed as before. Pickups and scenery use native sprites for far-object clarity and
   return to streamed rendering once both projected dimensions reach 16 output
   pixels. After switching, either dimension must fall below 12 pixels to
   request native rendering again. These initial thresholds are named
-  `FCWORLD_PICKUP_STREAM_PIXELS` / `FCWORLD_PICKUP_NATIVE_PIXELS` in
+  `FCWORLD_OBJECT_STREAM_PIXELS` / `FCWORLD_OBJECT_NATIVE_PIXELS` in
   `port/video/fcworld.h` for tuning against gameplay captures. The check uses
   full patch dimensions and raw camera scale, including the stream's 4/5
   horizontal and 28/25 vertical mapping, independently of screen clipping or
   native scale snapping. It runs after atlas metadata validation and before
   native scale/layout, admission, rasterization, palette and tile work. The
   host/device `clarity` counter reports these early streamed fallbacks. This
-  removes native work for readable pickups; net frame-time savings need to be
+  removes native work for readable pickups and scenery; net frame-time savings need to be
   measured on device. Live enemies retain their original admission rules.
   Death animations remain eligible for native sprites, but their terminal
   corpse pose (`tics == -1`) goes directly to the streamed renderer, bypassing
   native admission and processing. Map-placed dead bodies also stay streamed.
+  Scenery includes barrels (normal and burning), lamps, candles, torches,
+  pillars, trees, stalagmites/stalactites, and hanging or mounted props. Their
+  animation frames and fullbright variants come from the local IWAD. Enemies
+  and pickups take priority over scenery when tile/OAM/scanline budgets fill.
+  Barrel explosions and loose floor remains stay streamed. Missing IWAD
+  families also fall back to the stream. Rebuild the world atlas and combined
+  UF2 from your WAD to enable the expanded scope; existing atlases do not
+  contain these additional families.
 - `host_main.c` is the SDL-free host entry point. The pico-sdk functions the
   host platform lacks (multicore, alarms, hard assertions) come from
   `fcpico/sim/host_shim/`.

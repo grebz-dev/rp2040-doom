@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* Native NES sprites for admitted enemies and pickups. */
+/* Native NES sprites for admitted enemies, pickups and scenery. */
 #ifndef FCPICO_WORLD_SPRITES_H
 #define FCPICO_WORLD_SPRITES_H
 
@@ -18,7 +18,7 @@ typedef struct {
     uint32_t frames, enabled_frames, candidates, admitted;
     uint32_t streamed_budget, streamed_effect, streamed_lookup, streamed_overflow;
     uint32_t streamed_mismatch;  /**< atlas entry disagrees with engine sprite metadata */
-    uint32_t streamed_clarity;  /**< readable pickups skipped before native processing */
+    uint32_t streamed_clarity;  /**< readable pickups/scenery skipped before native processing */
     uint32_t build_failures;
     uint32_t held_actors;  /**< actors that kept their previous tiles (budget) */
     /* Device-only microsecond timings (zero on host): masks/raster in

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """World sprite atlas: engine-keyed views, flips, palettes and flash packaging."""
 import os
+import json
 from pathlib import Path
 import struct
 
@@ -99,6 +100,47 @@ def test_incomplete_rotations_are_rejected(tmp_path):
     path.write_bytes(wad)
     with pytest.raises(ValueError, match='lacks rotations'):
         atlas.build(path, {'families': {'POSS': 'enemy'}}, INFO, tmp_path / 'out')
+
+
+def test_scenery_scope_animation_and_roles(tmp_path):
+    """Build the shipped scope: static and animated props need scenery roles,
+    while map corpses using enemy families must remain distinguishable."""
+    scope = json.loads((ROOT / 'assets/world-sprite-scope.json').read_text())
+    scenery = {f for f, role in scope['families'].items() if role == 'scenery'}
+    assert {'BAR1', 'FCAN', 'COLU', 'CAND', 'TRE1', 'SMIT', 'SMT2',
+            'TBLU', 'TGRN', 'TRED', 'TLMP', 'TLP2', 'HDB1'} <= scenery
+    assert not {'BEXP', 'POL5', 'POB1', 'POB2', 'BRS1'} & scenery
+    playpal = bytearray(768)
+    playpal[3:6] = bytes((0, 160, 0))
+    lumps = [('PLAYPAL', bytes(playpal)), ('S_START', b'')]
+    # Include every scenery family, plus an enemy and pickup to catch role
+    # collisions. Model barrel/torch/lamp animations alongside static props.
+    frames = {f: {'BAR1': 2, 'TLMP': 4, 'TBLU': 4}.get(f, 1) for f in sorted(scenery)}
+    frames.update(POSS=1, STIM=1)
+    for family, count in frames.items():
+        for frame in range(count):
+            lumps.append((family + chr(65 + frame) + '0', patch(6, 5, 3, 5, 1)))
+    lumps.append(('S_END', b''))
+    wad = tmp_path / 'scenery.wad'
+    wad.write_bytes(make_wad(lumps))
+    manifest = atlas.build(wad, scope, INFO, tmp_path / 'out')
+    blob = (tmp_path / 'out/world_atlas.bin').read_bytes()
+    enum = atlas.sprite_enum(INFO)
+    family_off = struct.unpack_from('<I', blob, 36)[0]
+    for family, count in frames.items():
+        for frame in range(count):
+            for rotation in range(8):
+                record, flip = lookup(blob, enum.index(family), frame, rotation)
+                assert record[:4] == (6, 5, 3, 5) and not flip
+                flags = blob[family_off + atlas.FAMILY_RECORD * record[4] + 6]
+                assert flags & 5 == (4 if family in scenery else 1 if family == 'POSS' else 0)
+        assert lookup(blob, enum.index(family), count, 0) is None
+    assert manifest['bytes'] <= 0x80000
+    assert lookup(blob, enum.index('BEXP'), 0, 0) is None
+    assert 'BEXP' not in scope['families']
+    # A WAD without these props still builds normally and reports them missing.
+    minimal = atlas.build(_wad(tmp_path), scope, INFO, tmp_path / 'minimal')
+    assert scenery <= set(minimal['missing_families'])
 
 
 def test_world_flash_region():

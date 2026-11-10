@@ -357,7 +357,7 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
         packed = bytearray(8)   # 4-bit weights for local colours 1..15
         for i, w in enumerate(weights):
             packed[(i + 1) // 2] |= (int(w) & 15) << (((i + 1) & 1) * 4)
-        flags = (1 if role == 'enemy' else 0) | (2 if exclusive else 0)
+        flags = (1 if role == 'enemy' else 4 if role == 'scenery' else 0) | (2 if exclusive else 0)
         pad = np.full((LOCAL_COLORS - count, 64), 255, np.uint8)
         family_table += bytes((*candidates[0], *candidates[1], flags, count)) + bytes(packed)
         family_table += np.vstack([sel, pad]).tobytes() + np.vstack([mapping, pad]).tobytes()

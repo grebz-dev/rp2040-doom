@@ -107,6 +107,11 @@ bool fcworld_atlas_open(fcworld_atlas_t *atlas, const uint8_t *data, uint32_t si
     return true;
 }
 
+uint8_t fcworld_atlas_family_flags(const fcworld_atlas_t *atlas, unsigned index) {
+    if (atlas->data == NULL || index >= atlas->family_count) return 0;
+    return atlas->data[atlas_tables(atlas).families + index * FAMILY_RECORD + 6];
+}
+
 bool fcworld_atlas_family(const fcworld_atlas_t *atlas, unsigned index, fcworld_family_t *family) {
     if (atlas->data == NULL || index >= atlas->family_count) return false;
     const uint8_t *f = atlas->data + atlas_tables(atlas).families + index * FAMILY_RECORD;
@@ -242,10 +247,10 @@ static bool layout(const fcworld_projection_t *p, layout_t *l) {
     return l->col_lo <= l->col_hi && l->row_lo <= l->row_hi;
 }
 
-bool fcworld_pickup_needs_native(unsigned width, unsigned height, uint32_t iscale,
-                                 bool was_native) {
+bool fcworld_object_needs_native(unsigned width, unsigned height, uint32_t iscale,
+                                  bool was_native) {
     if (width == 0 || height == 0 || iscale == 0) return false;
-    unsigned threshold = was_native ? FCWORLD_PICKUP_STREAM_PIXELS : FCWORLD_PICKUP_NATIVE_PIXELS;
+    unsigned threshold = was_native ? FCWORLD_OBJECT_STREAM_PIXELS : FCWORLD_OBJECT_NATIVE_PIXELS;
     /* Compare full projected dimensions to the threshold without divisions.
      * Screen clipping and native scale snapping must not affect clarity. */
     return (uint64_t)width * 65536u * 4u < (uint64_t)threshold * iscale * 5u ||
