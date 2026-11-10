@@ -144,6 +144,12 @@ typedef struct {
 
 typedef struct { int16_t x, y; uint8_t w, h; } fcworld_box_t;
 
+/** Pickup proximity gate: apply the actor tile budget to a reference enemy at
+ *  this quantised inverse scale, independently of the pickup's size/clipping.
+ *  The engine supplies the atlas's front-facing idle imp patch. */
+bool fcworld_pickup_in_range(const fcworld_patch_t *enemy, uint32_t scale_step,
+                             bool was_native);
+
 /** Native bounding box of the anchored, scale-quantised patch clipped to the
  *  view; false when nothing is on screen. */
 bool fcworld_bounds(const fcworld_projection_t *projection, fcworld_box_t *box);

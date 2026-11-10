@@ -267,6 +267,50 @@ static void test_actor_size_hysteresis(void) {
     CHECK(!fcworld_actor_fits(FCWORLD_MAX_TILES, true));
 }
 
+static void test_pickup_proximity_matches_reference_enemy(void) {
+    fcworld_patch_t enemy = {.width = 40, .height = 56, .left = 20, .top = 56};
+    fcworld_projection_t p = {0};
+    p.x1 = 100; p.centery = 60;
+    p.view_width = 320; p.view_height = 168;
+    /* Compare the proximity gate against the unchanged size-budget decision
+     * for a fully visible reference enemy across approach and retreat. */
+    bool was_native = false;
+    const uint32_t inverse_scales[] = {196608, 131072, 110000, 100000, 65536,
+                                  100000, 110000, 131072, 196608};
+    const bool expected[] = {true, true, true, false, false, false, false, true, true};
+    for (unsigned i = 0; i < sizeof inverse_scales / sizeof inverse_scales[0]; ++i) {
+        uint32_t step = fcworld_scale_step(inverse_scales[i], 0);
+        p.patch = enemy;
+        p.iscale = p.xiscale = p.scale_step = step;
+        fcworld_box_t box;
+        CHECK(fcworld_bounds(&p, &box));
+        bool enemy_native = fcworld_actor_fits(fcworld_box_tiles(&box), was_native);
+        bool pickup_native = fcworld_pickup_in_range(&enemy, step, was_native);
+        CHECK_EQ(pickup_native, enemy_native);
+        CHECK_EQ(pickup_native, expected[i]);
+        was_native = pickup_native;
+    }
+    /* Small pickups still fit their own budget very close to the camera.
+     * Proximity must reject them anyway, regardless of pickup dimensions. */
+    p.iscale = p.xiscale = p.scale_step = 65536;
+    for (unsigned size = 8; size <= 24; size += 8) {
+        p.patch.width = p.patch.height = (uint8_t)size;
+        p.patch.left = p.patch.top = 0;
+        fcworld_box_t box;
+        CHECK(fcworld_bounds(&p, &box));
+        CHECK(fcworld_actor_fits(fcworld_box_tiles(&box), false));
+        CHECK(!fcworld_pickup_in_range(&enemy, p.scale_step, false));
+        CHECK(!fcworld_pickup_in_range(&enemy, p.scale_step, true));
+    }
+    /* Screen clipping cannot make a close pickup pass the proximity gate. */
+    p.x1 = 310; p.centery = 158;
+    fcworld_box_t box;
+    CHECK(fcworld_bounds(&p, &box));
+    CHECK(fcworld_actor_fits(fcworld_box_tiles(&box), true));
+    CHECK(!fcworld_pickup_in_range(&enemy, p.scale_step, true));
+    CHECK(!fcworld_pickup_in_range(&enemy, 0, false));
+}
+
 static void limit_actor(fcworld_frame_t *f, uint32_t id, unsigned tiles, unsigned seed,
                         int x, int y) {
     unsigned first = f->oam_count;
@@ -662,6 +706,7 @@ int main(void) {
     test_held_commit_waits_for_release();
     test_scale_step_hysteresis();
     test_actor_size_hysteresis();
+    test_pickup_proximity_matches_reference_enemy();
     test_frame_limit_reuses_previous_art();
     test_flipped_cache_reuse();
     test_core_gate_matches_console_generation();
