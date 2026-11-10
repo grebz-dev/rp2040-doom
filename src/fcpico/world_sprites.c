@@ -43,6 +43,8 @@ typedef struct {
 } candidate_t;
 
 static fcworld_atlas_t atlas;
+static fcworld_patch_t pickup_range_enemy;
+static bool pickup_range_ok;
 static bool atlas_ok, link_ready, frame_enabled, raster_ready;
 static candidate_t candidates[MAX_CANDIDATES];
 static uint8_t candidate_count;
@@ -57,6 +59,11 @@ static fcworld_palette_state_t shown_state = {FCWORLD_MENU_PALETTES_INIT, 0};
 bool fcpico_world_init(const uint8_t *data, uint32_t size, uint32_t identity) {
     atlas_ok = fcworld_atlas_open(&atlas, data, size) && atlas.identity == identity &&
                atlas.sprite_count == NUMSPRITES;
+    /* Enemy fallback is size-based, so calibrate pickup proximity against one
+     * stable enemy pose rather than the much smaller pickup's footprint. */
+    bool flip;
+    pickup_range_ok = atlas_ok && fcworld_atlas_lookup(&atlas, SPR_TROO, 0, 0,
+                                                      &flip, &pickup_range_enemy);
     return atlas_ok;
 }
 
@@ -137,7 +144,10 @@ bool fcpico_world_defer(const vissprite_t *vis, int sprite, int frame, int rotat
     uint32_t previous = previous_step(id);
     p.scale_step = fcworld_scale_step(p.iscale, previous);
     fcworld_box_t box;
+    bool pickup = (flags & (MF_SPECIAL | MF_COUNTKILL | MF_CORPSE)) == MF_SPECIAL;
     if (!fcworld_bounds(&p, &box) || !fcworld_actor_fits(fcworld_box_tiles(&box), previous != 0) ||
+        (pickup && (!pickup_range_ok ||
+                    !fcworld_pickup_in_range(&pickup_range_enemy, p.scale_step, previous != 0))) ||
         candidate_count == MAX_CANDIDATES) {
         stats.streamed_budget++;
         return false;

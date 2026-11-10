@@ -221,7 +221,12 @@ Set `DOTNET_ROOT` if Mesen cannot find its runtime.
 - `world_sprites.c` defers eligible enemies and pickups during projection,
   admits them after BSP, and rasterizes them against the renderer's depth
   information. Admitted actors stay out of the background stream; the rest are
-  streamed as before.
+  streamed as before. Pickups also switch to streamed rendering when a
+  front-facing idle imp at the same camera depth would exceed the actor tile
+  budget (12 tiles to enter, 16 to stay native). This proximity check uses the
+  imp patch from the atlas, so small or screen-clipped pickups cannot stay
+  native just because their own visible footprint is small. Enemy admission
+  is unchanged; their actual sprite size still determines their fallback.
 - `host_main.c` is the SDL-free host entry point. The pico-sdk functions the
   host platform lacks (multicore, alarms, hard assertions) come from
   `fcpico/sim/host_shim/`.

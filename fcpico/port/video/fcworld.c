@@ -242,6 +242,20 @@ static bool layout(const fcworld_projection_t *p, layout_t *l) {
     return l->col_lo <= l->col_hi && l->row_lo <= l->row_hi;
 }
 
+bool fcworld_pickup_in_range(const fcworld_patch_t *enemy, uint32_t scale_step,
+                             bool was_native) {
+    fcworld_projection_t reference = {0};
+    reference.patch = *enemy;
+    reference.iscale = reference.scale_step = scale_step;
+    reference.xiscale = 65536;  /* position is irrelevant to the full dimensions */
+    layout_t l;
+    if (!layout(&reference, &l)) return false;
+    unsigned columns = (unsigned)(l.col_hi - l.col_lo + 8) / 8;
+    unsigned rows = (unsigned)(l.row_hi - l.row_lo + 8) / 8;
+    unsigned limit = was_native ? FCWORLD_ACTOR_STAY_TILES : FCWORLD_ACTOR_ENTER_TILES;
+    return columns <= limit && rows <= limit && fcworld_actor_fits(columns * rows, was_native);
+}
+
 static int layout_column(const layout_t *l, int n) {
     int64_t r = n - l->ax;
     if (l->flip) r = -r - 1;
