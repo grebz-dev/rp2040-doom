@@ -221,7 +221,14 @@ Set `DOTNET_ROOT` if Mesen cannot find its runtime.
 - `world_sprites.c` defers eligible enemies, pickups and scenery during projection,
   admits them after BSP, and rasterizes them against the renderer's depth
   information. Admitted actors stay out of the background stream; the rest are
-  streamed as before. Pickups and scenery use native sprites for far-object clarity and
+  streamed as before. Every native-or-streamed decision is made in
+  `fcpico_world_defer` and `fcpico_world_admit`: an actor's role (enemy, dying,
+  pickup, scenery, or unscoped) comes from its atlas family, refined by engine
+  state for monster families, and every streamed actor is counted by role and
+  reason (`world_role` lines on host and device serial). When the 32-entry
+  candidate list fills during BSP, the lowest-ranked, farthest candidate is
+  streamed in favour of a better one, so pickups and scenery seen first no
+  longer displace live enemies. Pickups and scenery use native sprites for far-object clarity and
   return to streamed rendering once both projected dimensions reach 16 output
   pixels. After switching, either dimension must fall below 12 pixels to
   request native rendering again. These initial thresholds are named
@@ -231,7 +238,7 @@ Set `DOTNET_ROOT` if Mesen cannot find its runtime.
   horizontal and 28/25 vertical mapping, independently of screen clipping or
   native scale snapping. It runs after atlas metadata validation and before
   native scale/layout, admission, rasterization, palette and tile work. The
-  host/device `clarity` counter reports these early streamed fallbacks. This
+  `clarity` reason reports these early streamed fallbacks. This
   removes native work for readable pickups and scenery; net frame-time savings need to be
   measured on device. Live enemies retain their original admission rules.
   Death animations remain eligible for native sprites, but their terminal

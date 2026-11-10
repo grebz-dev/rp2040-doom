@@ -305,11 +305,11 @@ void fcvideo_frame_end(int palette_num, int video_type)
         if (pads_file != NULL) printf("use frames=%u\n", use_frames);
 #if FCPICO_WORLD_SPRITES
         const fcpico_world_stats_t *ws = fcpico_world_stats();
-        printf("world frames=%u enabled=%u candidates=%u admitted=%u streamed budget=%u "
-               "effect=%u lookup=%u mismatch=%u clarity=%u overflow=%u build_failures=%u\n",
+        printf("world frames=%u enabled=%u candidates=%u admitted=%u overflow=%u "
+               "build_failures=%u\n",
                ws->frames, ws->enabled_frames, ws->candidates, ws->admitted,
-               ws->streamed_budget, ws->streamed_effect, ws->streamed_lookup,
-               ws->streamed_mismatch, ws->streamed_clarity, ws->streamed_overflow, ws->build_failures);
+               ws->streamed_overflow, ws->build_failures);
+        fcpico_world_print_reasons();
 #endif
         if (apu_file && fclose(apu_file) != 0) {
             fprintf(stderr, "cannot finish APU capture\n");

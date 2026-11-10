@@ -14,11 +14,34 @@ extern "C" {
 
 struct vissprite_s;
 
+/** What an actor is, from its atlas family and engine state. */
+typedef enum {
+    FCPICO_WORLD_ROLE_UNSCOPED,  /**< family outside the atlas */
+    FCPICO_WORLD_ROLE_ENEMY,     /**< live monster */
+    FCPICO_WORLD_ROLE_DYING,     /**< monster death animation, or its settled remains */
+    FCPICO_WORLD_ROLE_PICKUP,
+    FCPICO_WORLD_ROLE_SCENERY,
+    FCPICO_WORLD_ROLES
+} fcpico_world_role_t;
+
+/** Why an actor was drawn by the streamed renderer instead of natively. */
+typedef enum {
+    FCPICO_WORLD_STREAM_LOOKUP,    /**< no atlas entry for this sprite frame */
+    FCPICO_WORLD_STREAM_MISMATCH,  /**< atlas entry disagrees with engine sprite metadata */
+    FCPICO_WORLD_STREAM_EFFECT,    /**< fuzz or colour translation */
+    FCPICO_WORLD_STREAM_REMAINS,   /**< settled corpse or map-placed body */
+    FCPICO_WORLD_STREAM_CLARITY,   /**< pickup/scenery already readable when streamed */
+    FCPICO_WORLD_STREAM_OVERSIZE,  /**< exceeds the per-actor tile budget on its own */
+    FCPICO_WORLD_STREAM_FULL,      /**< candidate list full */
+    FCPICO_WORLD_STREAM_BUDGET,    /**< frame tile/OAM/scanline budget spent at admission */
+    FCPICO_WORLD_STREAM_REASONS
+} fcpico_world_stream_reason_t;
+
 typedef struct {
     uint32_t frames, enabled_frames, candidates, admitted;
-    uint32_t streamed_budget, streamed_effect, streamed_lookup, streamed_overflow;
-    uint32_t streamed_mismatch;  /**< atlas entry disagrees with engine sprite metadata */
-    uint32_t streamed_clarity;  /**< readable pickups/scenery skipped before native processing */
+    uint32_t admitted_role[FCPICO_WORLD_ROLES];
+    uint32_t streamed[FCPICO_WORLD_ROLES][FCPICO_WORLD_STREAM_REASONS];
+    uint32_t streamed_overflow;  /**< admitted, then dropped while rasterizing */
     uint32_t build_failures;
     uint32_t held_actors;  /**< actors that kept their previous tiles (budget) */
     /* Device-only microsecond timings (zero on host): masks/raster in
@@ -38,9 +61,12 @@ bool fcpico_world_init_default(void);
 void fcpico_world_set_link(bool ready);
 /** pd_begin_frame: decide whether this frame may use native actors. */
 void fcpico_world_frame_begin(void);
-/** R_ProjectSprite: true when the actor is held for admission instead of drawn. */
+/** R_ProjectSprite: true when the actor is held for admission instead of drawn.
+ *  `settled` is the engine's lying-still sentinel (tics == -1). */
 bool fcpico_world_defer(const struct vissprite_s *vis, int sprite, int frame, int rotation,
-                        int lump, bool flip, uint32_t flags, uint32_t id);
+                        int lump, bool flip, uint32_t flags, bool settled, uint32_t id);
+/** One line per role: admitted count and streamed counts by reason. */
+void fcpico_world_print_reasons(void);
 /** New-tile budget per generation (default FCWORLD_TILE_BUDGET). */
 void fcpico_world_set_tile_budget(unsigned budget);
 /** After BSP traversal: admit within budgets, draw everything else as usual. */

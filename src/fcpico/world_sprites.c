@@ -13,6 +13,7 @@
  */
 #include "world_sprites.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -40,6 +41,7 @@ typedef struct {
     uint32_t depth;
     uint32_t id;
     uint8_t rank;
+    uint8_t role;
 } candidate_t;
 
 static fcworld_atlas_t atlas;
@@ -103,41 +105,62 @@ static uint32_t previous_step(uint32_t id) {
 
 void fcpico_world_set_tile_budget(unsigned budget) { tile_budget = budget; }
 
+static bool streamed(fcpico_world_role_t role, fcpico_world_stream_reason_t reason) {
+    stats.streamed[role][reason]++;
+    return false;
+}
+
+/* Atlas role, refined by engine state for monster families. */
+static fcpico_world_role_t classify(uint8_t family_flags, uint32_t flags) {
+    if (family_flags & FCWORLD_FAMILY_ENEMY)
+        return (flags & (MF_CORPSE | MF_DECORATION)) ? FCPICO_WORLD_ROLE_DYING
+                                                    : FCPICO_WORLD_ROLE_ENEMY;
+    return (family_flags & FCWORLD_FAMILY_SCENERY) ? FCPICO_WORLD_ROLE_SCENERY
+                                                   : FCPICO_WORLD_ROLE_PICKUP;
+}
+
+static int compare_candidates(const void *a, const void *b);
+
+/* BSP order fills the list, not admission order: when it is full, the lowest
+ * ranked, farthest candidate gives way to a better one and is streamed now,
+ * exactly as R_ProjectSprite would have drawn it. NULL keeps the list as is. */
+static candidate_t *evict_for(const candidate_t *incoming) {
+    candidate_t *worst = &candidates[0];
+    for (unsigned i = 1; i < candidate_count; ++i)
+        if (compare_candidates(&candidates[i], worst) > 0) worst = &candidates[i];
+    if (compare_candidates(incoming, worst) >= 0) return NULL;
+    streamed(worst->role, FCPICO_WORLD_STREAM_FULL);
+    stats.candidates--;
+    R_DrawSpriteEarly(&worst->vis);
+    return worst;
+}
+
 bool fcpico_world_defer(const vissprite_t *vis, int sprite, int frame, int rotation,
-                        int lump, bool flip, uint32_t flags, uint32_t id) {
+                        int lump, bool flip, uint32_t flags, bool settled, uint32_t id) {
     if (!frame_enabled) return false;
-    if (flags & (MF_SHADOW | MF_TRANSLATION)) {
-        stats.streamed_effect++;
-        return false;
-    }
     fcworld_projection_t p;
     bool atlas_flip;
     if (!fcworld_atlas_lookup(&atlas, sprite, frame & FF_FRAMEMASK, rotation, &atlas_flip,
-                              &p.patch)) {
-        stats.streamed_lookup++;  /* family outside the scoped atlas */
-        return false;
-    }
+                              &p.patch))
+        return streamed(FCPICO_WORLD_ROLE_UNSCOPED, FCPICO_WORLD_STREAM_LOOKUP);
+    fcpico_world_role_t role = classify(fcworld_atlas_family_flags(&atlas, p.patch.family), flags);
     if (atlas_flip != flip || (sprite_width(lump) >> FRACBITS) != p.patch.width ||
         (sprite_offset(lump) >> FRACBITS) != p.patch.left ||
-        (sprite_topoffset(lump) >> FRACBITS) != p.patch.top) {
-        stats.streamed_mismatch++;
-        return false;
-    }
-    uint8_t family_flags = fcworld_atlas_family_flags(&atlas, p.patch.family);
-    /* Map-placed dead enemies are decorations using an enemy sprite family.
-     * Do not confuse them with static scenery, which may also have tics=-1. */
-    if ((flags & MF_DECORATION) && (family_flags & FCWORLD_FAMILY_ENEMY)) return false;
+        (sprite_topoffset(lump) >> FRACBITS) != p.patch.top)
+        return streamed(role, FCPICO_WORLD_STREAM_MISMATCH);
+    if (flags & (MF_SHADOW | MF_TRANSLATION))
+        return streamed(role, FCPICO_WORLD_STREAM_EFFECT);
+    /* Map-placed bodies (MF_DECORATION) and settled corpses stay streamed;
+     * static scenery also has tics == -1, so only monster families qualify. */
+    if (role == FCPICO_WORLD_ROLE_DYING && (settled || (flags & MF_DECORATION)))
+        return streamed(role, FCPICO_WORLD_STREAM_REMAINS);
     uint32_t previous = previous_step(id);
     uint32_t iscale = (uint32_t)abs(vis->xiscale) >> detailshift;
-    bool pickup = (flags & (MF_SPECIAL | MF_COUNTKILL | MF_CORPSE)) == MF_SPECIAL;
-    bool scenery = (family_flags & FCWORLD_FAMILY_SCENERY) != 0;
-    /* Metadata lookup above is cheap. Clearly readable objects return to the
-     * stream before native scale/layout, admission, raster or tile work. */
-    if ((pickup || scenery) && !fcworld_object_needs_native(p.patch.width, p.patch.height,
-                                               iscale, previous != 0)) {
-        stats.streamed_clarity++;
-        return false;
-    }
+    /* Readable objects return to the stream before native scale/layout,
+     * admission, raster or tile work. */
+    if ((role == FCPICO_WORLD_ROLE_PICKUP || role == FCPICO_WORLD_ROLE_SCENERY) &&
+        !fcworld_object_needs_native(p.patch.width, p.patch.height, iscale, previous != 0))
+        return streamed(role, FCPICO_WORLD_STREAM_CLARITY);
     p.x1 = (int16_t)vis->x1;
     p.x2 = (int16_t)vis->x2;
     p.startfrac = vis->startfrac;
@@ -151,20 +174,39 @@ bool fcpico_world_defer(const vissprite_t *vis, int sprite, int frame, int rotat
     p.view_height = (int16_t)viewheight;
     p.scale_step = fcworld_scale_step(p.iscale, previous);
     fcworld_box_t box;
-    if (!fcworld_bounds(&p, &box) || !fcworld_actor_fits(fcworld_box_tiles(&box), previous != 0) ||
-        candidate_count == MAX_CANDIDATES) {
-        stats.streamed_budget++;
-        return false;
-    }
-    candidate_t *c = &candidates[candidate_count++];
-    c->vis = *vis;
-    c->projection = p;
-    c->box = box;
-    c->depth = pd_world_sprite_depth((uint32_t)vis->scale);
-    c->id = id;
-    c->rank = (flags & MF_CORPSE) ? 2 : (flags & MF_COUNTKILL) ? 0 : (flags & MF_SPECIAL) ? 1 : 2;
+    if (!fcworld_bounds(&p, &box) || !fcworld_actor_fits(fcworld_box_tiles(&box), previous != 0))
+        return streamed(role, FCPICO_WORLD_STREAM_OVERSIZE);
+    candidate_t c = {
+        .vis = *vis, .projection = p, .box = box,
+        .depth = pd_world_sprite_depth((uint32_t)vis->scale), .id = id,
+        .rank = role == FCPICO_WORLD_ROLE_ENEMY ? 0 : role == FCPICO_WORLD_ROLE_PICKUP ? 1 : 2,
+        .role = (uint8_t)role,
+    };
+    candidate_t *slot = candidate_count < MAX_CANDIDATES ? &candidates[candidate_count++]
+                                                         : evict_for(&c);
+    if (slot == NULL) return streamed(role, FCPICO_WORLD_STREAM_FULL);
+    *slot = c;
     stats.candidates++;
     return true;
+}
+
+void fcpico_world_print_reasons(void) {
+    static const char *const roles[FCPICO_WORLD_ROLES] = {
+        "unscoped", "enemy", "dying", "pickup", "scenery"};
+    for (unsigned r = 0; r < FCPICO_WORLD_ROLES; ++r) {
+        const uint32_t *s = stats.streamed[r];
+        printf("world_role %s admitted=%lu lookup=%lu mismatch=%lu effect=%lu remains=%lu "
+               "clarity=%lu oversize=%lu full=%lu budget=%lu\n", roles[r],
+               (unsigned long)stats.admitted_role[r],
+               (unsigned long)s[FCPICO_WORLD_STREAM_LOOKUP],
+               (unsigned long)s[FCPICO_WORLD_STREAM_MISMATCH],
+               (unsigned long)s[FCPICO_WORLD_STREAM_EFFECT],
+               (unsigned long)s[FCPICO_WORLD_STREAM_REMAINS],
+               (unsigned long)s[FCPICO_WORLD_STREAM_CLARITY],
+               (unsigned long)s[FCPICO_WORLD_STREAM_OVERSIZE],
+               (unsigned long)s[FCPICO_WORLD_STREAM_FULL],
+               (unsigned long)s[FCPICO_WORLD_STREAM_BUDGET]);
+    }
 }
 
 static int compare_candidates(const void *a, const void *b) {
@@ -190,7 +232,7 @@ void fcpico_world_admit(void) {
             fits = lines[line] + columns <= FCWORLD_MAX_LINE_SPRITES;
         }
         if (!fits) {
-            stats.streamed_budget++;
+            streamed(candidates[i].role, FCPICO_WORLD_STREAM_BUDGET);
             R_DrawSpriteEarly(&candidates[i].vis);
             continue;
         }
@@ -200,6 +242,7 @@ void fcpico_world_admit(void) {
         tiles += columns * rows;
         admitted[admitted_count++] = (uint8_t)i;
         stats.admitted++;
+        stats.admitted_role[candidates[i].role]++;
     }
 }
 
