@@ -81,10 +81,13 @@ git submodule update --init fcpico/sim/mesen2/Mesen2  # only for cosimulation
 python3 -m venv fcpico/.venv && fcpico/.venv/bin/pip install -r fcpico/tools/requirements.txt
 ```
 
-`fcpico/external/fc-pico` is the pristine upstream
-[impact-soft/fc-pico](https://github.com/impact-soft/fc-pico). The boot ROM
-build includes its permanent fix bank, and tests compare against its tutorial
-firmware. The engine's `3rdparty/tinyusb` submodule is not needed for this
+`fcpico/external/fc-pico` is the `integration` branch of the
+[grebz-dev/fc-pico](https://github.com/grebz-dev/fc-pico) fork, pinned to an
+`integration-*` tag: upstream
+[impact-soft/fc-pico](https://github.com/impact-soft/fc-pico) plus the
+platform contributions awaiting upstream review. Those contributions leave the
+tutorial project unchanged. The boot ROM build includes its permanent fix bank,
+and tests compare against its tutorial firmware. The engine's `3rdparty/tinyusb` submodule is not needed for this
 target.
 
 ### Flashable image
@@ -197,7 +200,7 @@ Set `DOTNET_ROOT` if Mesen cannot find its runtime.
 | `fcpico/tools/` | ROM generators, WAD/audio/atlas converters, stream/trace decoders, packaging and layout checks, performance tools |
 | `fcpico/sim/` | Host shim, host cartridge model, PPU-bus model, PIO emulator tests, MesenCE fork and runners |
 | `fcpico/tests/` | CTest and pytest suites, goldens and the hardware trace fixture |
-| `fcpico/external/fc-pico/` | Pristine upstream FC PICO (fix bank, tutorial ROM and firmware references) |
+| `fcpico/external/fc-pico/` | FC PICO fork, `integration-*` tag (fix bank, tutorial ROM and firmware references) |
 
 ## Engine integration
 
@@ -340,7 +343,7 @@ outside the atlas are streamed with the background.
 | `fcpico/` code | BSD-3-Clause unless a file's SPDX header says otherwise |
 | `fcbus/fcppu.pio` | Derived from the FC PICO tutorial's `fcppu.pio`: BSD-3-Clause header (Raspberry Pi (Trading) Ltd.) with impact soft modifications whose terms are unconfirmed |
 | `bootrom/` | Derived from the FC PICO tutorial `BOOTROM/`; impact soft terms |
-| Fix bank, tutorial ROM | Not redistributed here: taken from the pristine `external/fc-pico` submodule |
+| Fix bank, tutorial ROM | Not redistributed here: taken from the `external/fc-pico` submodule |
 | `assets/*.chr`, `*.bin` | Hand-edited derivatives of shareware Doom art, under id Software's shareware terms like `doom1.whx` |
 | World atlas, audio bank | Generated locally from your WAD; never committed |
 | MesenCE fork (cosimulation only) | GPL-3.0; not part of the firmware |

@@ -3,7 +3,7 @@
 	url = https://github.com/liamfraser/tinyusb.git
 [submodule "fcpico/external/fc-pico"]
 	path = fcpico/external/fc-pico
-	url = https://github.com/impact-soft/fc-pico.git
+	url = https://github.com/grebz-dev/fc-pico.git
 [submodule "fcpico/sim/mesen2/Mesen2"]
 	path = fcpico/sim/mesen2/Mesen2
 	url = https://github.com/grebz-dev/MesenCE-FC-PICO.git
