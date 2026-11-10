@@ -24,14 +24,7 @@ int main(void)
 #else
     puts("FC PICO DOOM video bring-up");
 #if FCPICO_DIAGNOSTIC_ENGINE_DELAY
-    gpio_init(PICO_DEFAULT_LED_PIN);
-    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-    for (unsigned remaining = 30; remaining != 0; --remaining) {
-        fcpico_video_device_poll_bootsel();
-        gpio_put(PICO_DEFAULT_LED_PIN, remaining & 1u);
-        printf("FC PICO diagnostic: Doom starts in %u s\n", remaining);
-        sleep_ms(1000);
-    }
+    fcpico_video_device_poll_bootsel();
     puts("FC PICO diagnostic: entering D_DoomMain");
 #endif
     I_Init();
