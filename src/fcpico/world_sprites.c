@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Native NES sprites for admitted enemies and pickups.
+ * Native NES sprites for admitted enemies, pickups and scenery.
  *
  * R_ProjectSprite hands eligible actors here instead of inserting them into the
  * PD column lists. After BSP traversal they are ranked (live monsters, then
- * pickups, then corpses; nearest first) and admitted whole while the frame's
- * tile, OAM and scanline budgets allow. Rejected actors are drawn exactly as
+ * pickups, then scenery and falling corpses; nearest first) and admitted whole
+ * while the frame's tile, OAM and scanline budgets allow. Rejected actors are drawn exactly as
  * before. Admitted actors never clip geometry, so the background behind them
  * stays intact; pd_end_frame later rasterizes them against the resolved PD
  * columns, hiding every pixel where nearer geometry, a nearer streamed actor
@@ -123,12 +123,17 @@ bool fcpico_world_defer(const vissprite_t *vis, int sprite, int frame, int rotat
         stats.streamed_mismatch++;
         return false;
     }
+    uint8_t family_flags = fcworld_atlas_family_flags(&atlas, p.patch.family);
+    /* Map-placed dead enemies are decorations using an enemy sprite family.
+     * Do not confuse them with static scenery, which may also have tics=-1. */
+    if ((flags & MF_DECORATION) && (family_flags & FCWORLD_FAMILY_ENEMY)) return false;
     uint32_t previous = previous_step(id);
     uint32_t iscale = (uint32_t)abs(vis->xiscale) >> detailshift;
     bool pickup = (flags & (MF_SPECIAL | MF_COUNTKILL | MF_CORPSE)) == MF_SPECIAL;
-    /* Metadata lookup above is cheap. Clearly readable pickups return to the
+    bool scenery = (family_flags & FCWORLD_FAMILY_SCENERY) != 0;
+    /* Metadata lookup above is cheap. Clearly readable objects return to the
      * stream before native scale/layout, admission, raster or tile work. */
-    if (pickup && !fcworld_pickup_needs_native(p.patch.width, p.patch.height,
+    if ((pickup || scenery) && !fcworld_object_needs_native(p.patch.width, p.patch.height,
                                                iscale, previous != 0)) {
         stats.streamed_clarity++;
         return false;

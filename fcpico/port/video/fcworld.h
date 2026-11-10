@@ -88,6 +88,7 @@ typedef struct {
 } fcworld_family_t;
 #define FCWORLD_FAMILY_ENEMY 0x01
 #define FCWORLD_FAMILY_EXCLUSIVE 0x02
+#define FCWORLD_FAMILY_SCENERY 0x04
 
 typedef struct {
     const uint8_t *data;
@@ -104,6 +105,8 @@ bool fcworld_atlas_open(fcworld_atlas_t *atlas, const uint8_t *data, uint32_t si
 bool fcworld_atlas_lookup(const fcworld_atlas_t *atlas, int sprite, int frame, int rotation,
                           bool *flip, fcworld_patch_t *patch);
 bool fcworld_atlas_family(const fcworld_atlas_t *atlas, unsigned index, fcworld_family_t *family);
+/** Lightweight role lookup for admission; zero for an unavailable family. */
+uint8_t fcworld_atlas_family_flags(const fcworld_atlas_t *atlas, unsigned index);
 static inline uint8_t fcworld_patch_texel(const fcworld_patch_t *p, int x, int y) {
     return (uint8_t)((p->pixels[y * p->stride + (x >> 1)] >> ((x & 1) * 4)) & 15);
 }
@@ -144,17 +147,17 @@ typedef struct {
 
 typedef struct { int16_t x, y; uint8_t w, h; } fcworld_box_t;
 
-/* Initial clarity thresholds in streamed output pixels. A native pickup
- * switches to streamed when BOTH dimensions reach 16 pixels; once streamed,
- * it requests native again only when EITHER dimension falls below 12 pixels.
+/* Initial clarity thresholds in streamed output pixels. Pickups and scenery
+ * switch to streamed when BOTH dimensions reach 16 pixels; once streamed,
+ * they request native again only when EITHER dimension falls below 12 pixels.
  * Tune against gameplay captures; these are independent of native tile cost. */
-#define FCWORLD_PICKUP_STREAM_PIXELS 16
-#define FCWORLD_PICKUP_NATIVE_PIXELS 12
+#define FCWORLD_OBJECT_STREAM_PIXELS 16
+#define FCWORLD_OBJECT_NATIVE_PIXELS 12
 /** Cheap, unclipped projected-size check using patch dimensions and raw 16.16
  *  inverse scale. Accounts for the stream's 4/5 horizontal and 28/25 vertical
  *  mapping, without quantising, laying out or rasterizing a native sprite. */
-bool fcworld_pickup_needs_native(unsigned width, unsigned height, uint32_t iscale,
-                                 bool was_native);
+bool fcworld_object_needs_native(unsigned width, unsigned height, uint32_t iscale,
+                                  bool was_native);
 
 /** Native bounding box of the anchored, scale-quantised patch clipped to the
  *  view; false when nothing is on screen. */

@@ -798,9 +798,10 @@ void R_ProjectSprite(mobj_t *thing) {
 #if FCPICO_WORLD_SPRITES
     /* MF_CORPSE is set before the death animation. Keep falling enemies
      * eligible, but stream their terminal pose (the engine's lying-still
-     * sentinel). Map-placed bodies have MF_DECORATION instead of MF_CORPSE. */
+     * sentinel). Map-placed bodies are rejected by atlas role in world_defer;
+     * MF_DECORATION alone also includes static lamps, trees and pillars. */
     boolean streamed_remains = thing->tics == -1 &&
-        (thing->flags & (MF_CORPSE | MF_DECORATION));
+        (thing->flags & MF_CORPSE);
     if (!streamed_remains && fcpico_world_defer(vis, mobj_sprite(thing), mobj_frame(thing),
                            spriteframe_rotates(sprframe) ? (int)rot : 0, lump, flip,
                            (uint32_t)thing->flags, (uint32_t)(uintptr_t)thing))
