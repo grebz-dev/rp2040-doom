@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
-/* Identical workload on the host and Cortex-M33, using a generated v2 atlas. */
+/* Identical workload on the host and Cortex-M33, using a generated v3 atlas. */
 #include "fcworld.h"
 #include <string.h>
 #ifndef WORLD_BARE_METAL
@@ -99,6 +99,9 @@ static void workload(void) {
             p.startfrac = variant & 1 ? (patch.width - 1) * 65536 : 0;
             p.texturemid = patch.top * 65536;
             p.centery = 100; p.view_width = 320; p.view_height = 168;
+            /* Actors are mostly lit darker than full brightness in the demos:
+             * bands 0, 2, 4, 6 alternate, exercising computed lit errors. */
+            p.light = (uint8_t)((variant % 4) * 2);
             fcworld_box_t box;
             if (!fcworld_bounds(&p, &box) || fcworld_box_tiles(&box) > FCWORLD_MAX_TILES)
                 continue;

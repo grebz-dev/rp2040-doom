@@ -31,16 +31,21 @@ static bool FCWORLD_RAM(same)(const uint8_t *a, const uint8_t *b, unsigned n) {
 /* ------------------------------------------------------------------------ */
 /* Atlas                                                                      */
 /* ------------------------------------------------------------------------ */
-/* Format v2 (tools/build_world_atlas.py): 48-byte header; sprite records
+/* Format v3 (tools/build_world_atlas.py): 48-byte header; sprite records
  * {u16 first entry, u8 frames, u8 family}; u16 entries (patch+1 | flip<<15);
  * family records {6 candidate colours, flags, count, 8 bytes of 4-bit weights,
- * [15][64] select errors, [15][64] map errors}; 12-byte patch records; 4bpp
- * texel rows. */
+ * [15][64] select errors, [15][64] map errors, 6 candidate colours for each
+ * light band 1..7, [8 bands][15][4] s16 lit colours}; the NES colour table
+ * [64][4] s16; 12-byte patch records; 4bpp texel rows. */
 enum {
     ATLAS_HEADER = 48,
     SPRITE_RECORD = 4,
     PATCH_RECORD = 12,
-    FAMILY_RECORD = 16 + 2 * FCWORLD_LOCAL_COLORS * 64,
+    FAMILY_TABLES = 16 + 2 * FCWORLD_LOCAL_COLORS * 64,
+    FAMILY_BAND_CANDIDATES = FAMILY_TABLES,
+    FAMILY_CENTRES = FAMILY_BAND_CANDIDATES + 6 * (FCWORLD_LIGHT_BANDS - 1),
+    FAMILY_RECORD = FAMILY_CENTRES + FCWORLD_LIGHT_BANDS * FCWORLD_LOCAL_COLORS * 8,
+    NES_TABLE = 64 * 8,
     ROTATIONS = 8,
 };
 
@@ -50,14 +55,17 @@ static uint32_t rd32(const uint8_t *p) {
 }
 
 typedef struct {
-    uint32_t sprites, entries, entry_count, patches, families;
+    uint32_t sprites, entries, entry_count, patches, families, nes;
 } atlas_tables_t;
 
 static atlas_tables_t atlas_tables(const fcworld_atlas_t *atlas) {
     const uint8_t *d = atlas->data;
-    atlas_tables_t t = {rd32(d + 20), rd32(d + 24), rd32(d + 28), rd32(d + 32), rd32(d + 36)};
+    atlas_tables_t t = {rd32(d + 20), rd32(d + 24), rd32(d + 28), rd32(d + 32), rd32(d + 36),
+                        rd32(d + 40)};
     return t;
 }
+
+static void lit_memo_reset(void);
 
 static bool range_ok(uint32_t offset, uint32_t length, uint32_t size) {
     return offset <= size && length <= size - offset;
@@ -70,14 +78,17 @@ bool fcworld_atlas_open(fcworld_atlas_t *atlas, const uint8_t *data, uint32_t si
         return false;
     }
     fcworld_atlas_t candidate = {data, size, rd16(data + 6), rd16(data + 18), rd16(data + 16),
-                                 rd32(data + 12)};
+                                 rd32(data + 12), NULL};
     atlas_tables_t t = atlas_tables(&candidate);
     if (!range_ok(t.sprites, (uint32_t)candidate.sprite_count * SPRITE_RECORD, size) ||
         !range_ok(t.entries, t.entry_count * 2u, size) ||
         !range_ok(t.patches, (uint32_t)candidate.patch_count * PATCH_RECORD, size) ||
-        !range_ok(t.families, (uint32_t)candidate.family_count * FAMILY_RECORD, size)) {
+        !range_ok(t.families, (uint32_t)candidate.family_count * FAMILY_RECORD, size) ||
+        !range_ok(t.nes, NES_TABLE, size)) {
         return false;
     }
+    candidate.nes = data + t.nes;
+    lit_memo_reset();
     for (uint32_t i = 0; i < candidate.sprite_count; ++i) {
         const uint8_t *s = data + t.sprites + i * SPRITE_RECORD;
         uint16_t first = rd16(s);
@@ -94,6 +105,8 @@ bool fcworld_atlas_open(fcworld_atlas_t *atlas, const uint8_t *data, uint32_t si
         const uint8_t *f = data + t.families + i * FAMILY_RECORD;
         if (f[7] == 0 || f[7] > FCWORLD_LOCAL_COLORS) return false;
         for (int c = 0; c < 6; ++c) if (f[c] > 0x3F) return false;
+        for (int c = 0; c < 6 * (FCWORLD_LIGHT_BANDS - 1); ++c)
+            if (f[FAMILY_BAND_CANDIDATES + c] > 0x3F) return false;
     }
     for (uint32_t i = 0; i < candidate.patch_count; ++i) {
         const uint8_t *p = data + t.patches + i * PATCH_RECORD;
@@ -107,17 +120,103 @@ bool fcworld_atlas_open(fcworld_atlas_t *atlas, const uint8_t *data, uint32_t si
     return true;
 }
 
-bool fcworld_atlas_family(const fcworld_atlas_t *atlas, unsigned index, fcworld_family_t *family) {
-    if (atlas->data == NULL || index >= atlas->family_count) return false;
+bool fcworld_atlas_family(const fcworld_atlas_t *atlas, unsigned index, unsigned band,
+                          fcworld_family_t *family) {
+    if (atlas->data == NULL || index >= atlas->family_count || band >= FCWORLD_LIGHT_BANDS)
+        return false;
     const uint8_t *f = atlas->data + atlas_tables(atlas).families + index * FAMILY_RECORD;
-    family->candidates = f;
+    family->candidates = band == 0 ? f : f + FAMILY_BAND_CANDIDATES + (band - 1) * 6;
     family->flags = f[6];
     family->count = f[7];
+    family->band = (uint8_t)band;
     family->weight[0] = 0;
     for (int v = 1; v < 16; ++v) family->weight[v] = (uint8_t)((f[8 + v / 2] >> ((v & 1) * 4)) & 15);
     family->select = f + 16;
     family->map = f + 16 + FCWORLD_LOCAL_COLORS * 64;
+    family->centres = f + FAMILY_CENTRES + band * FCWORLD_LOCAL_COLORS * 8;
+    family->nes = atlas->nes;
     return true;
+}
+
+static int32_t rds16(const uint8_t *p) { return (int16_t)rd16(p); }
+
+/* (isqrt(d) * 600 + 8192) >> 14, saturated at 255, is non-decreasing in d:
+ * it reaches e exactly when d >= r(e)^2 with r(e) = ceil((16384 e - 8192) / 600).
+ * A binary search over those 255 thresholds replaces the square root. */
+static uint32_t error_threshold[256];
+
+static void error_thresholds(void) {
+    for (uint32_t e = 1; e < 256; ++e) {
+        uint32_t r = (16384u * e - 8192u + 599u) / 600u;
+        error_threshold[e] = r * r;
+    }
+}
+
+static uint8_t scaled_error(uint32_t d) {
+    if (error_threshold[255] == 0) error_thresholds();
+    uint32_t lo = 0, hi = 255;
+    while (lo < hi) {
+        uint32_t mid = (lo + hi + 1) / 2;
+        if (d >= error_threshold[mid]) lo = mid; else hi = mid - 1;
+    }
+    return (uint8_t)lo;
+}
+
+uint8_t fcworld_family_error(const fcworld_family_t *f, unsigned v, uint8_t colour) {
+    if (f->band == 0) return f->select[(v - 1) * 64 + colour];
+    const uint8_t *a = f->centres + (v - 1) * 8, *b = f->nes + colour * 8;
+    int64_t dl = rds16(a) - rds16(b), da = rds16(a + 2) - rds16(b + 2);
+    int64_t db = rds16(a + 4) - rds16(b + 4), dc = rds16(a + 6) - rds16(b + 6);
+    int64_t hue = da * da + db * db - dc * dc;
+    if (hue < 0) hue = 0;
+    uint64_t d = (uint64_t)(dl * dl + dc * dc + 3 * hue) >> 2;
+    return scaled_error(d > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)d);
+}
+
+/* Lit errors depend only on (family, band, NES colour), and the same actors
+ * stay on screen frame after frame: keep the rows for a few recent family
+ * bands. Foreground only; reset when an atlas is opened. */
+enum { LIT_MEMOS = 4, LIT_COLOURS = 20 };
+typedef struct {
+    uint16_t key;          /* family | band << 8; 0 = empty (band 0 is never memoised) */
+    uint8_t n;
+    uint8_t colour[LIT_COLOURS];
+    uint8_t error[LIT_COLOURS][FCWORLD_LOCAL_COLORS];
+} lit_memo_t;
+static lit_memo_t lit_memo[LIT_MEMOS];
+static uint8_t lit_memo_next;
+
+static void lit_memo_reset(void) {
+    for (int i = 0; i < LIT_MEMOS; ++i) lit_memo[i].key = 0;
+}
+
+/* Errors of local colours 1..count against one NES colour at f's band. */
+static const uint8_t *lit_row(const fcworld_family_t *f, unsigned family, uint8_t colour) {
+    uint16_t key = (uint16_t)(family | f->band << 8);
+    lit_memo_t *m = NULL;
+    for (int i = 0; i < LIT_MEMOS && m == NULL; ++i)
+        if (lit_memo[i].key == key) m = &lit_memo[i];
+    if (m == NULL) {
+        m = &lit_memo[lit_memo_next];
+        lit_memo_next = (uint8_t)((lit_memo_next + 1) % LIT_MEMOS);
+        m->key = key;
+        m->n = 0;
+    }
+    for (unsigned i = 0; i < m->n; ++i)
+        if (m->colour[i] == colour) return m->error[i];
+    if (m->n == LIT_COLOURS) m->n = 0;
+    uint8_t *row = m->error[m->n];
+    m->colour[m->n++] = colour;
+    for (unsigned v = 1; v <= f->count; ++v) row[v - 1] = fcworld_family_error(f, v, colour);
+    return row;
+}
+
+uint8_t fcworld_light_band(int level, uint8_t previous) {
+    if (level < 0) level = 0;
+    if (level > 31) level = 31;
+    if (previous < FCWORLD_LIGHT_BANDS && level >= previous * 4 - 2 && level <= previous * 4 + 5)
+        return previous;
+    return (uint8_t)(level / 4);
 }
 
 bool fcworld_atlas_lookup(const fcworld_atlas_t *atlas, int sprite, int frame, int rotation,
@@ -324,6 +423,7 @@ bool fcworld_raster_actor(fcworld_raster_t *raster, const fcworld_projection_t *
     }
     raster->actor[raster->count].box = *box;
     raster->actor[raster->count].family = p->patch.family;
+    raster->actor[raster->count].light = p->light < FCWORLD_LIGHT_BANDS ? p->light : 0;
     raster->actor[raster->count].offset = raster->used;
     raster->actor[raster->count].id = 0;
     raster->actor[raster->count].occluded = occluded;
@@ -391,13 +491,24 @@ static void loaded_palettes(const uint8_t world[MBX_WORLD_PAL_LEN], const uint8_
     out[3] = fixed_palette3;
 }
 
-static uint32_t family_error(const fcworld_family_t *f, const uint8_t palette[3]) {
+static uint32_t family_error(const fcworld_family_t *f, unsigned family, const uint8_t palette[3]) {
     uint32_t total = 0;
+    if (f->band == 0) {
+        for (unsigned v = 1; v <= f->count; ++v) {
+            const uint8_t *row = f->select + (v - 1) * 64;
+            uint8_t best = row[palette[0]];
+            if (row[palette[1]] < best) best = row[palette[1]];
+            if (row[palette[2]] < best) best = row[palette[2]];
+            total += (uint32_t)f->weight[v] * best;
+        }
+        return total;
+    }
+    const uint8_t *r0 = lit_row(f, family, palette[0]), *r1 = lit_row(f, family, palette[1]);
+    const uint8_t *r2 = lit_row(f, family, palette[2]);
     for (unsigned v = 1; v <= f->count; ++v) {
-        const uint8_t *row = f->select + (v - 1) * 64;
-        uint8_t best = row[palette[0]];
-        if (row[palette[1]] < best) best = row[palette[1]];
-        if (row[palette[2]] < best) best = row[palette[2]];
+        uint8_t best = r0[v - 1];
+        if (r1[v - 1] < best) best = r1[v - 1];
+        if (r2[v - 1] < best) best = r2[v - 1];
         total += (uint32_t)f->weight[v] * best;
     }
     return total;
@@ -408,24 +519,29 @@ void fcworld_plan_palettes(const fcworld_atlas_t *atlas, const fcworld_raster_t 
                            uint8_t palettes[MBX_WORLD_PAL_LEN]) {
     memcpy(palettes, shown->palettes, MBX_WORLD_PAL_LEN);
     bool open[2] = {!(shown->busy & 1), !(shown->busy & 2)};
-    uint8_t seen[FCWORLD_MAX_ACTORS];
+    /* Distinct (family, light band) pairs, nearest first. */
+    uint8_t seen[FCWORLD_MAX_ACTORS], seen_light[FCWORLD_MAX_ACTORS];
     unsigned families = 0;
     for (unsigned a = 0; a < raster->count; ++a) {
         bool dup = false;
-        for (unsigned i = 0; i < families; ++i) dup = dup || seen[i] == raster->actor[a].family;
-        if (!dup) seen[families++] = raster->actor[a].family;
+        for (unsigned i = 0; i < families; ++i)
+            dup = dup || (seen[i] == raster->actor[a].family && seen_light[i] == raster->actor[a].light);
+        if (!dup) {
+            seen[families] = raster->actor[a].family;
+            seen_light[families++] = raster->actor[a].light;
+        }
     }
     /* Every family's first candidate before any second one, nearest first. */
     for (unsigned pass = 0; pass < 2; ++pass) {
         for (unsigned i = 0; i < families && (open[0] || open[1]); ++i) {
             fcworld_family_t f;
-            if (!fcworld_atlas_family(atlas, seen[i], &f)) continue;
+            if (!fcworld_atlas_family(atlas, seen[i], seen_light[i], &f)) continue;
             const uint8_t *candidate = f.candidates + pass * 3;
             const uint8_t *loaded[4];
             loaded_palettes(palettes, loaded);
-            uint32_t want = family_error(&f, candidate), have = UINT32_MAX;
+            uint32_t want = family_error(&f, seen[i], candidate), have = UINT32_MAX;
             for (int p = 0; p < 4; ++p) {
-                uint32_t e = family_error(&f, loaded[p]);
+                uint32_t e = family_error(&f, seen[i], loaded[p]);
                 if (e < have) have = e;
             }
             if ((uint64_t)have * 10u <= (uint64_t)want * 11u) continue;
@@ -455,7 +571,7 @@ bool fcworld_frame_build(fcworld_frame_t *frame, const fcworld_raster_t *raster,
     fcworld_frame_clear(frame, palettes);
     const uint8_t *loaded[4];
     loaded_palettes(palettes, loaded);
-    int cached_family = -1;
+    int cached_family = -1;   /* family | light band << 8 */
     uint16_t planes[4][16], cost[4][16];
     bool allowed[4] = {true, true, true, true};
     for (unsigned a = 0; a < raster->count; ++a) {
@@ -464,10 +580,12 @@ bool fcworld_frame_build(fcworld_frame_t *frame, const fcworld_raster_t *raster,
         /* Per loaded palette: both NES bitplanes at column zero, and weighted
          * cost of each local colour. Consecutive actors of the same family
          * share these tables; loaded palettes stay fixed for the frame. */
-        if (cached_family != raster->actor[a].family) {
+        int key = raster->actor[a].family | raster->actor[a].light << 8;
+        if (cached_family != key) {
             fcworld_family_t f;
-            if (!fcworld_atlas_family(atlas, raster->actor[a].family, &f)) goto overflow;
-            cached_family = raster->actor[a].family;
+            if (!fcworld_atlas_family(atlas, raster->actor[a].family, raster->actor[a].light, &f))
+                goto overflow;
+            cached_family = key;
             for (int p = 0; p < 4; ++p) allowed[p] = true;
             if (f.flags & FCWORLD_FAMILY_EXCLUSIVE) {
                 bool any = false;
@@ -486,8 +604,13 @@ bool fcworld_frame_build(fcworld_frame_t *frame, const fcworld_raster_t *raster,
                     const uint8_t *sel = f.select + row * 64, *map = f.map + row * 64;
                     uint8_t best_sel = 255, best_map = 255, k = 0;
                     for (uint8_t c = 0; c < 3; ++c) {
-                        if (sel[loaded[p][c]] < best_sel) best_sel = sel[loaded[p][c]];
-                        if (map[loaded[p][c]] < best_map) { best_map = map[loaded[p][c]]; k = c; }
+                        /* Lit bands: one computed error serves both (the
+                         * generator's mapping lightness weight is 1). */
+                        uint8_t es = f.band ? lit_row(&f, raster->actor[a].family, loaded[p][c])[row]
+                                            : sel[loaded[p][c]];
+                        uint8_t em = f.band ? es : map[loaded[p][c]];
+                        if (es < best_sel) best_sel = es;
+                        if (em < best_map) { best_map = em; k = c; }
                     }
                     unsigned colour = k + 1;
                     planes[p][v] = (uint16_t)(((colour & 1) << 7) | ((colour & 2) << 14));

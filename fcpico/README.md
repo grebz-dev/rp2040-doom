@@ -332,6 +332,26 @@ World sprites are generated at build time from your IWAD
 sprite families, their reviewed palette overrides and exclusivity. Families
 outside the atlas are streamed with the background.
 
+Native sprites are lit like the streamed view. Doom darkens a sprite by its
+sector light and distance through the WAD's `COLORMAP`. The atlas (format v3)
+stores each family's colours at eight light bands of four light levels, with
+two candidate palettes per band, and each actor's band picks its palettes and
+per-tile colours. Reviewed `palette_overrides` keep their hues as they darken.
+Bands change with two levels of hysteresis. Invulnerability's inverse colormap
+streams the actor. `FCPICO_WORLD_LIGHTING=OFF` draws every native sprite at
+full brightness, as earlier builds did.
+
+To compare Doom's lit colours with the console's, by family and band:
+
+```sh
+cd fcpico/tools && ../.venv/bin/python build_world_atlas.py /path/to/doom1.wad -o /tmp/atlas \
+    --light-report --review TROOA1,POSSA1,MEDIA0
+```
+
+`world_atlas_light.json` gives the mean OKLab distance from Doom's lit sprite
+colours for unlit and lit native sprites. `world_atlas_light_review.png` shows
+Doom, unlit and lit native pictures at bands 0, 3, 5 and 7.
+
 ![Native world sprites](docs/screenshots/world-sprites.png)
 
 ## Licensing

@@ -123,3 +123,53 @@ def test_real_shareware_atlas_deterministic(tmp_path):
     second = atlas.build(Path(wad), scope, INFO, tmp_path / 'b')
     assert first == second and first['bytes'] <= 0x80000
     assert (tmp_path / 'a/world_atlas.bin').read_bytes() == (tmp_path / 'b/world_atlas.bin').read_bytes()
+
+
+def test_band_errors_match_runtime_arithmetic():
+    import numpy as np
+    # Same case as test_fcworld.c test_light_bands_use_lit_colours.
+    centre = np.array([[4096, 819, 0, 819]])
+    nes = np.zeros((64, 4), np.int64)
+    nes[0x06] = (6554, 1966, 492, 2027)
+    assert atlas.band_errors(centre, nes)[0, 0x06] == 51
+    # A perfect match is zero; distances saturate at 255.
+    assert atlas.band_errors(nes[[0x06]], nes)[0, 0x06] == 0
+    far = np.array([[-16384, 8000, -8000, 11314]])
+    assert atlas.band_errors(far, nes).max() == 255
+
+
+def test_light_bands_follow_colormap(tmp_path):
+    """Lit colours come from the WAD's COLORMAP; each band's palettes keep
+    three distinct colours and the family record carries them."""
+    import numpy as np
+    playpal = bytearray(768)
+    playpal[3:6] = bytes((0, 160, 0))         # green
+    playpal[6:9] = bytes((200, 30, 30))       # red
+    playpal[9:12] = bytes((0, 40, 0))         # dark green
+    playpal[12:15] = bytes((50, 8, 8))        # dark red
+    colormap = bytearray(34 * 256)
+    for level in range(34):
+        for i in range(256):
+            colormap[level * 256 + i] = i if level < 8 else {1: 3, 2: 4}.get(i, 0)
+    lumps = [('PLAYPAL', bytes(playpal)), ('COLORMAP', bytes(colormap)), ('S_START', b'')]
+    lumps += [(f'POSSA{r}', patch(6, 5, 3, 5, 1 + r % 2)) for r in range(1, 9)]
+    lumps += [('S_END', b'')]
+    path = tmp_path / 'lit.wad'
+    path.write_bytes(make_wad(lumps))
+    manifest = atlas.build(path, {'families': {'POSS': 'enemy'}}, INFO, tmp_path / 'out')
+    blob = (tmp_path / 'out/world_atlas.bin').read_bytes()
+    assert struct.unpack_from('<H', blob, 4)[0] == 3
+    family_off, nes_off = struct.unpack_from('<II', blob, 36)
+    record = blob[family_off:family_off + atlas.FAMILY_RECORD]
+    centres = np.frombuffer(record[16 + 2 * 15 * 64 + atlas.BAND_CANDIDATES:], '<i2'
+                            ).reshape(atlas.LIGHT_BANDS, 15, 4)
+    count = record[7]
+    # Bands 0 and 1 (levels 0 and 6) see the bright colours, bands 2+ the dark ones.
+    assert (centres[1, :count, 0] == centres[0, :count, 0]).all() or \
+        abs(int(centres[1, :count, 0].sum()) - int(centres[0, :count, 0].sum())) < 64
+    assert (centres[2, :count, 0] < centres[0, :count, 0]).all()
+    for band in manifest['families']['POSS']['light_candidates']:
+        for palette in band:
+            assert len(set(palette)) == 3
+    nes = np.frombuffer(blob[nes_off:nes_off + 64 * 8], '<i2').reshape(64, 4)
+    assert nes[0x30, 0] > nes[0x0F, 0]
