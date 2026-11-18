@@ -54,15 +54,16 @@ applies, and a workaround where one exists.
 - **Native world sprites need a firmware build from your own IWAD.** The atlas
   identity is compiled into the firmware, so a different WAD needs a rebuild.
   Only shareware sprite families have reviewed palettes. With the shareware
-  WAD the atlas uses 408 KB of its 512 KB flash region.
+  WAD the atlas, with its light bands, uses 438 KB of its 512 KB flash region.
   `FCPICO_WORLD_SCOPE=auto` derives the families from the engine tables and
   the WAD, including Doom II actors. It drops the least-placed families to fit
   the flash region; dropped and absent families are streamed. Only the bundled
   shareware `doom1.whx` is wired into the build, so other WADs are untested
   end to end.
-- **`whd_gen` does not build with the host GCC used for development** (an
-  error in `src/whd_gen/whd_gen.cpp`). Host engine builds should target
-  `doom_tiny_fcpico` (and `host_shim_test`) instead of `all`.
+- **`whd_gen` output differs from the bundled `doom1.whx` in encoded sound
+  effects.** Built with GCC 13, it regenerates a WHX of the same size whose
+  picture data plays identically (host demo 1, 400 frames). About 112 KB of
+  sound-effect bytes differ; FC PICO synthesizes effects from the WAD instead.
 - **Two host engine golden tests are stale.** `engine_host_determinism` and
   `engine_title_menu_golden` compare against frame hashes recorded before the
   native HUD and world sprite changes, and fail. `engine_input_walk` passes.
