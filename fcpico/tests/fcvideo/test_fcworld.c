@@ -168,7 +168,8 @@ static void test_scheduler_uploads_commits_and_protects(void) {
     make_frame(&a, 20, 1);
     uint8_t gen = fcworld_submit(&w, &a);
     CHECK(gen >= 1 && gen <= 15);
-    CHECK_EQ(fcworld_submit(&w, &a), 0xFF); /* busy */
+    CHECK_EQ(fcworld_submit(&w, &a), gen);  /* identical while in flight: nothing queued */
+    CHECK_EQ(w.next_state, FCWORLD_NEXT_NONE);
     unsigned beats = drive(&w, &c, 7);
     CHECK(beats >= 5 + 2);                   /* 5 CHR packets, 2 OAM halves */
     CHECK_EQ(c.shown, gen);
@@ -242,6 +243,161 @@ static void test_held_commit_waits_for_release(void) {
     /* An idle or busy submit never leaves a hold behind. */
     CHECK_EQ(fcworld_submit_held(&w, &a), gen);
     CHECK(!w.hold_commit);
+}
+
+/* Heartbeats until idle, recording each generation the console reports. */
+static unsigned drive_seen(fcworld_t *w, console_t *c, uint8_t seen[64], unsigned *count) {
+    unsigned beats = 0;
+    uint8_t mailbox[FC_COM_BUF_SIZE_V5];
+    uint8_t pad2 = (uint8_t)(c->shown << WORLD_HB_GEN_SHIFT | c->ack);
+    *count = 0;
+    do {
+        memset(mailbox, 0, sizeof mailbox);
+        mailbox[MBX_MAGIC] = PF_MAGIC_NO;
+        fcworld_heartbeat(w, mailbox, pad2);
+        pad2 = console_nmi(c, mailbox);
+        console_main(c, beats % 4 == 0);
+        if (*count == 0 || seen[*count - 1] != c->shown) {
+            if (*count < 64) seen[(*count)++] = c->shown;
+        }
+        CHECK(++beats < 400);
+    } while (!fcworld_idle(w) && beats < 400);
+    memset(mailbox, 0, sizeof mailbox);
+    fcworld_heartbeat(w, mailbox, pad2);
+    return beats;
+}
+
+static void test_queued_generation_follows_in_flight(void) {
+    fcworld_t w;
+    console_t c;
+    fcworld_reset(&w);
+    console_init(&c);
+    fcworld_frame_t a, b, d;
+    make_frame(&a, 20, 1);
+    make_frame(&b, 20, 11);
+    make_frame(&d, 20, 31);
+    uint8_t gen_a = fcworld_submit(&w, &a);
+    CHECK(gen_a >= 1 && gen_a <= 15);
+    CHECK(fcworld_can_submit(&w));
+    uint8_t gen_b = fcworld_submit(&w, &b);
+    CHECK(gen_b >= 1 && gen_b <= 15 && gen_b != gen_a);
+    CHECK_EQ(w.next_state, FCWORLD_NEXT_READY);
+    CHECK(!fcworld_can_submit(&w));
+    CHECK_EQ(fcworld_submit(&w, &d), 0xFF);   /* one queued generation at most */
+    /* Queued uploads never use a slot the in-flight generation targets. */
+    for (unsigned u = 0; u < w.next_upload_count; ++u)
+        CHECK(!w.slots[w.next_upload[u]].target);
+    uint8_t seen[64];
+    unsigned count;
+    drive_seen(&w, &c, seen, &count);
+    /* Shown in order, each completely, and no displayed tile rewritten. */
+    CHECK(count >= 2);
+    CHECK_EQ(seen[count - 2], gen_a);
+    CHECK_EQ(seen[count - 1], gen_b);
+    CHECK_EQ(c.shown, gen_b);
+    check_displayed(&c, &b);
+    CHECK_EQ(c.writes_to_shown, 0u);
+    CHECK_EQ(w.stats.promoted, 1u);
+    CHECK_EQ(w.stats.queued, 1u);
+}
+
+static void test_queued_generation_shares_pending_tiles_and_holds(void) {
+    fcworld_t w;
+    console_t c;
+    fcworld_reset(&w);
+    console_init(&c);
+    fcworld_frame_t a, b;
+    make_frame(&a, 20, 41);
+    make_frame(&b, 20, 51);   /* overlaps a: shares tiles still uploading */
+    uint8_t gen_a = fcworld_submit(&w, &a);
+    uint8_t gen_b = fcworld_submit_held(&w, &b);
+    CHECK(gen_b != 0xFF && gen_b != gen_a);
+    CHECK(w.next_upload_count < 20);
+    uint8_t mailbox[FC_COM_BUF_SIZE_V5];
+    uint8_t pad2 = 0;
+    for (int beat = 0; beat < 60; ++beat) {
+        memset(mailbox, 0, sizeof mailbox);
+        fcworld_heartbeat(&w, mailbox, pad2);
+        pad2 = console_nmi(&c, mailbox);
+        console_main(&c, beat % 3 == 0);
+    }
+    /* a is shown; b uploaded everything but waits for its picture. */
+    CHECK_EQ(c.shown, gen_a);
+    CHECK_EQ(w.target_gen, gen_b);
+    CHECK_EQ(w.stage, FCWORLD_OAM);
+    CHECK_EQ(w.stats.commits, 1u);
+    fcworld_release(&w);
+    drive(&w, &c, 5);
+    CHECK_EQ(c.shown, gen_b);
+    check_displayed(&c, &b);
+    CHECK_EQ(c.writes_to_shown, 0u);
+}
+
+static void test_queued_clear_and_unchanged(void) {
+    fcworld_t w;
+    console_t c;
+    fcworld_reset(&w);
+    console_init(&c);
+    fcworld_frame_t a, empty;
+    make_frame(&a, 8, 61);
+    fcworld_frame_clear(&empty, world_pal);
+    uint8_t gen_a = fcworld_submit(&w, &a);
+    CHECK_EQ(fcworld_submit(&w, &empty), 0);
+    CHECK_EQ(w.next_state, FCWORLD_NEXT_READY);
+    drive(&w, &c, 2);
+    CHECK_EQ(c.shown, 0);
+    CHECK(gen_a != 0);
+    check_displayed(&c, &empty);
+    CHECK(fcworld_quiescent(&w, world_pal));
+}
+
+static void test_abandoned_generations_never_show(void) {
+    fcworld_t w;
+    console_t c;
+    fcworld_reset(&w);
+    console_init(&c);
+    fcworld_frame_t a, b, d;
+    make_frame(&a, 12, 71);
+    make_frame(&b, 12, 91);
+    make_frame(&d, 12, 111);
+    uint8_t gen_a = fcworld_submit(&w, &a);
+    drive(&w, &c, 1);
+    CHECK_EQ(c.shown, gen_a);
+
+    /* In flight and held, then its picture is dropped: abandoned mid-upload. */
+    uint8_t gen_b = fcworld_submit_held(&w, &b);
+    uint8_t mailbox[FC_COM_BUF_SIZE_V5];
+    uint8_t pad2 = (uint8_t)(c.shown << WORLD_HB_GEN_SHIFT | c.ack);
+    memset(mailbox, 0, sizeof mailbox);
+    fcworld_heartbeat(&w, mailbox, pad2);       /* one CHR packet out, unacknowledged */
+    CHECK(w.outstanding != 0);
+    fcworld_abandon(&w);
+    CHECK(fcworld_idle(&w));
+    CHECK_EQ(w.stats.abandoned, 1u);
+    pad2 = console_nmi(&c, mailbox);
+    console_main(&c, false);
+
+    /* The next generation resends the abandoned packet before its own. */
+    uint8_t gen_d = fcworld_submit(&w, &d);
+    CHECK(gen_d != gen_b || gen_b == 0xFF);
+    drive(&w, &c, 2);
+    CHECK_EQ(c.shown, gen_d);
+    check_displayed(&c, &d);
+    CHECK_EQ(c.writes_to_shown, 0u);
+
+    /* Queued and held, picture dropped: cancelled before any upload. */
+    uint8_t gen_e = fcworld_submit(&w, &a);
+    CHECK(gen_e != 0xFF);
+    CHECK(fcworld_submit_held(&w, &b) != 0xFF);
+    CHECK_EQ(w.next_state, FCWORLD_NEXT_READY);
+    fcworld_abandon(&w);
+    CHECK_EQ(w.next_state, FCWORLD_NEXT_NONE);
+    uint8_t seen[64];
+    unsigned count;
+    drive_seen(&w, &c, seen, &count);
+    CHECK_EQ(c.shown, gen_e);
+    check_displayed(&c, &a);
+    for (unsigned i = 0; i < count; ++i) CHECK(seen[i] == gen_d || seen[i] == gen_e);
 }
 
 static void test_scale_step_hysteresis(void) {
@@ -660,6 +816,10 @@ int main(void) {
     test_frame_partial_tiles();
     test_scheduler_uploads_commits_and_protects();
     test_held_commit_waits_for_release();
+    test_queued_generation_follows_in_flight();
+    test_queued_generation_shares_pending_tiles_and_holds();
+    test_queued_clear_and_unchanged();
+    test_abandoned_generations_never_show();
     test_scale_step_hysteresis();
     test_actor_size_hysteresis();
     test_frame_limit_reuses_previous_art();

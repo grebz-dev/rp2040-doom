@@ -727,17 +727,38 @@ void FCWORLD_RAM(fcworld_reset)(fcworld_t *world) {
 }
 
 bool fcworld_idle(const fcworld_t *world) {
-    return __atomic_load_n(&world->stage, __ATOMIC_ACQUIRE) == FCWORLD_IDLE;
+    return __atomic_load_n(&world->stage, __ATOMIC_ACQUIRE) == FCWORLD_IDLE &&
+           __atomic_load_n(&world->next_state, __ATOMIC_ACQUIRE) == FCWORLD_NEXT_NONE;
+}
+
+bool fcworld_can_submit(const fcworld_t *world) {
+    return __atomic_load_n(&world->next_state, __ATOMIC_ACQUIRE) == FCWORLD_NEXT_NONE &&
+           __atomic_load_n(&world->stage, __ATOMIC_ACQUIRE) != FCWORLD_PREPARING;
 }
 
 bool fcworld_reserve(fcworld_t *world) {
-    if (!fcworld_idle(world)) return false;
-    __atomic_store_n(&world->stage, FCWORLD_PREPARING, __ATOMIC_RELEASE);
+    if (!fcworld_can_submit(world)) return false;
+    if (__atomic_load_n(&world->stage, __ATOMIC_ACQUIRE) == FCWORLD_IDLE) {
+        __atomic_store_n(&world->stage, FCWORLD_PREPARING, __ATOMIC_RELEASE);
+        return true;
+    }
+    /* Under the caller's IRQ lock: the in-flight generation's slots stay
+     * protected for the whole plan, even if it finalizes meanwhile (its
+     * targets then become shown, which the queued uploads must not touch). */
+    uint64_t protect = 0, pending = 0;
+    for (int i = 0; i < FCWORLD_POOL_TILES; ++i) {
+        if (!world->slots[i].target) continue;
+        protect |= (uint64_t)1 << i;
+        if (!world->slots[i].valid) pending |= (uint64_t)1 << i;
+    }
+    world->next_protect = protect;
+    world->next_pending = pending;
+    __atomic_store_n(&world->next_state, FCWORLD_NEXT_PREPARING, __ATOMIC_RELEASE);
     return true;
 }
 
 bool fcworld_quiescent(const fcworld_t *world, const uint8_t palettes[MBX_WORLD_PAL_LEN]) {
-    return world->stage == FCWORLD_IDLE && world->shown_gen == 0 &&
+    return fcworld_idle(world) && world->shown_gen == 0 &&
            memcmp(world->shown_pal, palettes, MBX_WORLD_PAL_LEN) == 0;
 }
 
@@ -754,7 +775,7 @@ static int allocate_slot(fcworld_t *world) {
     int best = -1;
     for (int i = 0; i < FCWORLD_POOL_TILES; ++i) {
         const fcworld_slot_t *s = &world->slots[i];
-        if (s->shown || s->target) continue;
+        if (s->shown || s->target || s->sending) continue;
         if (!s->valid) return i;
         if (best < 0 || s->last_used < world->slots[best].last_used) best = i;
     }
@@ -765,13 +786,107 @@ static uint8_t next_generation(fcworld_t *world) {
     uint8_t gen = world->last_gen;
     do {
         gen = (uint8_t)(gen % WORLD_GEN_MASK + 1);
-    } while (gen == world->shown_gen);
+    } while (gen == world->shown_gen || gen == world->target_gen);
     world->last_gen = gen;
     return gen;
 }
 
+static void cancel_queue(fcworld_t *world) {
+    for (int i = 0; i < FCWORLD_POOL_TILES; ++i) world->slots[i].queued = false;
+    __atomic_store_n(&world->next_state, FCWORLD_NEXT_NONE, __ATOMIC_RELEASE);
+}
+
+/* Plan a generation behind the one in flight. Its uploads start only after
+ * that generation is shown, so slots it targets (`next_protect`) are the only
+ * ones to keep; tiles it is still uploading are already final and may be
+ * shared. Only the foreground allocates slots, and it does so only here or in
+ * submit, never both at once. */
+static uint8_t queue(fcworld_t *world, const fcworld_frame_t *frame, bool held) {
+    world->stats.submits++;
+    world->clock++;
+    for (int i = 0; i < FCWORLD_POOL_TILES; ++i) world->slots[i].queued = false;
+    world->next_hold = held;
+    world->next_upload_count = 0;
+    memcpy(world->next_pal, frame->palettes, MBX_WORLD_PAL_LEN);
+    /* In-flight generation fields stay fixed until promotion, which waits
+     * for NEXT_READY. */
+    bool same_pal = memcmp(world->pal, frame->palettes, MBX_WORLD_PAL_LEN) == 0;
+
+    if (frame->oam_count == 0) {
+        if (world->clear && same_pal) {
+            world->stats.unchanged++;
+            cancel_queue(world);
+            return 0;
+        }
+        world->next_clear = true;
+        world->next_gen = 0;
+        world->stats.clears++;
+        world->stats.queued++;
+        __atomic_store_n(&world->next_state, FCWORLD_NEXT_READY, __ATOMIC_RELEASE);
+        return 0;
+    }
+
+    uint8_t slot_of[FCWORLD_MAX_TILES];
+    for (int t = 0; t < frame->tile_count; ++t) {
+        int slot = -1;
+        for (int i = 0; i < FCWORLD_POOL_TILES && slot < 0; ++i) {
+            bool resident = world->slots[i].valid || (world->next_pending >> i & 1);
+            if (resident && flip_match(world->slots[i].data, frame->tiles[t]) >= 0) slot = i;
+        }
+        if (slot >= 0) {
+            world->stats.cache_hits++;
+        } else {
+            for (int i = 0; i < FCWORLD_POOL_TILES; ++i) {
+                const fcworld_slot_t *s = &world->slots[i];
+                if ((world->next_protect >> i & 1) || s->queued || s->sending) continue;
+                if (!s->valid) { slot = i; break; }
+                if (slot < 0 || s->last_used < world->slots[slot].last_used) slot = i;
+            }
+            if (slot < 0) {
+                cancel_queue(world);
+                return 0xFF;
+            }
+            fcworld_slot_t *s = &world->slots[slot];
+            s->valid = false;
+            memcpy(s->data, frame->tiles[t], 16);
+            world->next_upload[world->next_upload_count++] = (uint8_t)slot;
+        }
+        world->slots[slot].queued = true;
+        world->slots[slot].last_used = world->clock;
+        slot_of[t] = (uint8_t)slot;
+    }
+
+    memset(world->next_oam, 0, sizeof world->next_oam);
+    for (int n = 0; n < WORLD_OAM_ENTRIES; ++n) world->next_oam[n * 4] = 0xEF;
+    for (int n = 0; n < frame->oam_count; ++n) {
+        const uint8_t *e = frame->oam[n];
+        const fcworld_slot_t *s = &world->slots[slot_of[e[1]]];
+        world->next_oam[n * 4 + 0] = e[0];
+        world->next_oam[n * 4 + 1] = s->tile;
+        world->next_oam[n * 4 + 2] = (uint8_t)(e[2] ^ (uint8_t)flip_match(s->data, frame->tiles[e[1]]));
+        world->next_oam[n * 4 + 3] = e[3];
+    }
+
+    if (world->next_upload_count == 0 && same_pal && !world->clear &&
+        memcmp(world->next_oam, world->oam, WORLD_OAM_ENTRIES * 4) == 0) {
+        world->stats.unchanged++;
+        cancel_queue(world);
+        return world->target_gen;
+    }
+    world->next_clear = false;
+    world->next_gen = next_generation(world);
+    world->stats.generations++;
+    world->stats.queued++;
+    __atomic_store_n(&world->next_state, FCWORLD_NEXT_READY, __ATOMIC_RELEASE);
+    return world->next_gen;
+}
+
 static uint8_t submit(fcworld_t *world, const fcworld_frame_t *frame, bool held) {
-    if (world->stage != FCWORLD_PREPARING && !fcworld_reserve(world)) return 0xFF;
+    if (world->stage != FCWORLD_PREPARING && world->next_state != FCWORLD_NEXT_PREPARING &&
+        !fcworld_reserve(world)) {
+        return 0xFF;
+    }
+    if (world->next_state == FCWORLD_NEXT_PREPARING) return queue(world, frame, held);
     /* Publish hold before stage, including the all-cached commit-only path. */
     world->hold_commit = held;
     world->stats.submits++;
@@ -859,12 +974,38 @@ uint8_t fcworld_submit_held(fcworld_t *world, const fcworld_frame_t *frame) {
     return submit(world, frame, true);
 }
 
-void fcworld_release(fcworld_t *world) { world->hold_commit = false; }
+/* The latest submission is the one being published; an earlier one was
+ * released by its own picture already. */
+void fcworld_release(fcworld_t *world) {
+    world->next_hold = false;
+    world->hold_commit = false;
+}
+
+void fcworld_abandon(fcworld_t *world) {
+    if (world->next_state == FCWORLD_NEXT_READY) {
+        if (world->next_hold) {
+            world->stats.abandoned++;
+            cancel_queue(world);
+        }
+        return;
+    }
+    /* Held, so no commit was sent and the console keeps showing the previous
+     * generation. An unacknowledged packet stays outstanding and is resent
+     * first by the next generation: a CHR ack marks only slots whose data
+     * still matches, and staged_known tracks staged OAM halves. */
+    if (world->hold_commit && (world->stage == FCWORLD_CHR || world->stage == FCWORLD_OAM)) {
+        for (int i = 0; i < FCWORLD_POOL_TILES; ++i) world->slots[i].target = false;
+        world->hold_commit = false;
+        world->stats.abandoned++;
+        __atomic_store_n(&world->stage, FCWORLD_IDLE, __ATOMIC_RELEASE);
+    }
+}
 
 static void FCWORLD_RAM(finish_packet)(fcworld_t *world) {
     if (world->packet_kind == WORLD_OP_CHR) {
         for (int i = 0; i < world->packet_tile_count; ++i) {
             world->slots[world->packet_tiles[i]].valid = true;
+            world->slots[world->packet_tiles[i]].sending = false;
         }
         world->stats.chr_tiles += world->packet_tile_count;
         return;
@@ -902,6 +1043,27 @@ static void FCWORLD_RAM(finalize_generation)(fcworld_t *world) {
     __atomic_store_n(&world->stage, FCWORLD_IDLE, __ATOMIC_RELEASE);
 }
 
+/* The queued generation becomes the one in flight. */
+static void FCWORLD_RAM(promote)(fcworld_t *world) {
+    for (int i = 0; i < FCWORLD_POOL_TILES; ++i) {
+        world->slots[i].target = world->slots[i].queued;
+        world->slots[i].queued = false;
+    }
+    copy(world->upload, world->next_upload, world->next_upload_count);
+    world->upload_count = world->next_upload_count;
+    world->upload_next = 0;
+    copy(world->oam, world->next_oam, sizeof world->oam);
+    copy(world->pal, world->next_pal, MBX_WORLD_PAL_LEN);
+    world->clear = world->next_clear;
+    world->target_gen = world->next_gen;
+    world->hold_commit = world->next_hold;
+    world->oam_half = 0;
+    world->busy_heartbeats = 0;
+    world->stats.promoted++;
+    world->next_state = FCWORLD_NEXT_NONE;
+    world->stage = world->upload_count ? FCWORLD_CHR : FCWORLD_OAM;
+}
+
 static bool FCWORLD_RAM(half_needed)(const fcworld_t *world, int half) {
     return !world->staged_known[half] ||
            !same(world->staged + half * 64, world->oam + half * 64, 64);
@@ -926,6 +1088,7 @@ static bool FCWORLD_RAM(next_packet)(fcworld_t *world) {
                 if (i == 0 || world->packet_tiles[world->packet_tile_count - 1] != slot) {
                     world->packet_tiles[world->packet_tile_count++] = slot;
                 }
+                world->slots[slot].sending = true;
             }
             return true;
         }
@@ -980,8 +1143,14 @@ void FCWORLD_RAM(fcworld_heartbeat)(fcworld_t *world, uint8_t *mailbox, uint8_t 
     if (world->stage == FCWORLD_WAIT_SHOWN && shown == world->target_gen) {
         finalize_generation(world);
     }
-    if (world->stage == FCWORLD_IDLE) return;
-    if (++world->busy_heartbeats > FCWORLD_STALL_HEARTBEATS) {
+
+    if (world->stage == FCWORLD_IDLE) {
+        if (__atomic_load_n(&world->next_state, __ATOMIC_ACQUIRE) != FCWORLD_NEXT_READY) return;
+        promote(world);
+    }
+    /* A stall resets the queue too; never while the foreground plans into it. */
+    if (++world->busy_heartbeats > FCWORLD_STALL_HEARTBEATS &&
+        world->next_state != FCWORLD_NEXT_PREPARING) {
         stall(world);
         return;
     }

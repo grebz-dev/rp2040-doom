@@ -243,6 +243,8 @@ typedef struct {
     uint32_t packets, resends, chr_tiles, cache_hits, commits, shown;
     uint32_t deferred_heartbeats, stalls;
     uint32_t busy_heartbeats_max;
+    uint32_t queued, promoted;   /**< generations planned behind one in flight */
+    uint32_t abandoned;          /**< held generations whose picture was dropped */
 } fcworld_stats_t;
 
 typedef struct {
@@ -250,12 +252,16 @@ typedef struct {
     bool valid;
     bool shown;      /**< referenced by the generation in console OAM */
     bool target;     /**< referenced by the generation being uploaded */
+    bool queued;     /**< referenced by the generation queued behind it */
+    bool sending;    /**< in a CHR packet not yet acknowledged; never reallocated */
     uint32_t last_used;
     uint8_t data[16];
 } fcworld_slot_t;
 
 #define FCWORLD_HAS_RESERVATION 1
+#define FCWORLD_HAS_QUEUE 1
 enum { FCWORLD_IDLE = 0, FCWORLD_CHR, FCWORLD_OAM, FCWORLD_WAIT_SHOWN, FCWORLD_PREPARING };
+enum { FCWORLD_NEXT_NONE = 0, FCWORLD_NEXT_PREPARING, FCWORLD_NEXT_READY };
 
 typedef struct {
     fcworld_slot_t slots[FCWORLD_POOL_TILES];
@@ -283,25 +289,49 @@ typedef struct {
     uint32_t busy_heartbeats;
     bool stalled;
     bool hold_commit;     /**< uploads may proceed; the commit waits */
+    /* One generation may be planned while another is in flight. Its packets
+     * start in the heartbeat that finalizes the in-flight generation, so the
+     * mailbox does not sit idle until the engine's next submission. Uploads
+     * cannot start earlier: during WAIT_SHOWN the console must run the commit
+     * DMA, which any new world packet would postpone. */
+    uint8_t next_state;   /**< FCWORLD_NEXT_* */
+    uint64_t next_protect; /**< slots the in-flight generation targets, at reservation */
+    uint64_t next_pending; /**< ... of those, still uploading (data final, not yet valid) */
+    uint8_t next_upload[FCWORLD_MAX_TILES];
+    uint8_t next_upload_count;
+    uint8_t next_oam[WORLD_OAM_PACKET * 4 * 2];
+    uint8_t next_pal[MBX_WORLD_PAL_LEN];
+    uint8_t next_gen;
+    bool next_clear, next_hold;
     fcworld_stats_t stats;
 } fcworld_t;
 
 /** Fresh link: console OAM holds no world generation, pool contents unknown. */
 void fcworld_reset(fcworld_t *world);
+/** No generation in flight or queued. */
 bool fcworld_idle(const fcworld_t *world);
-/** Single foreground producer: reserve an idle scheduler under the caller's
- *  short IRQ lock, then run submit/submit_held with IRQs enabled. Heartbeats
- *  keep servicing the bus but do not inspect partially prepared world data. */
+/** fcworld_reserve would succeed: idle, or busy with no generation queued. */
+bool fcworld_can_submit(const fcworld_t *world);
+/** Single foreground producer: reserve the scheduler under the caller's short
+ *  IRQ lock, then run submit/submit_held with IRQs enabled. An idle scheduler
+ *  is reserved for an immediate generation; a busy one for a generation queued
+ *  behind the one in flight. Heartbeats keep servicing the bus but do not
+ *  inspect partially prepared world data. */
 bool fcworld_reserve(fcworld_t *world);
-/** Plan a new generation for `frame` (idle only). Returns the generation the
- *  matching picture must be published with: unchanged frames return the shown
- *  generation, empty frames generation 0. 0xFF when busy. */
+/** Plan a new generation for `frame`, immediately or queued (see
+ *  fcworld_reserve). Returns the generation the matching picture must be
+ *  published with: unchanged frames return the generation that will be shown,
+ *  empty frames generation 0. 0xFF when the scheduler cannot take it. */
 uint8_t fcworld_submit(fcworld_t *world, const fcworld_frame_t *frame);
 /** As fcworld_submit, but the committing packet waits for fcworld_release, so
  *  tile and OAM staging overlap the conversion of the matching picture. */
 uint8_t fcworld_submit_held(fcworld_t *world, const fcworld_frame_t *frame);
-/** The matching picture is published (or abandoned): allow the commit. */
+/** The matching picture is published: allow the commit. */
 void fcworld_release(fcworld_t *world);
+/** The matching picture of the latest held submission was dropped: never show
+ *  its generation. A queued one is cancelled; an in-flight one stops before its
+ *  commit (uploaded tiles stay cached). Call under the caller's IRQ lock. */
+void fcworld_abandon(fcworld_t *world);
 /** fcbus heartbeat hook: process pad2 and add at most one packet to `mailbox`. */
 void fcworld_heartbeat(fcworld_t *world, uint8_t *mailbox, uint8_t pad2);
 /** True once after the scheduler abandoned a generation (the caller must release

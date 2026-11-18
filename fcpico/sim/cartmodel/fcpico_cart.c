@@ -154,7 +154,8 @@ static void publish_sequence(void) {
     /* Device: the generation is built at resolve, part-way through the
      * render, and submitted held when the scheduler is idle. */
     if (g_seq_early && !converting && !submitted && g_seq_submit_tenths > 0 &&
-        elapsed >= g_seq_submit_tenths && fcworld_idle(&g_world)) {
+        elapsed >= g_seq_submit_tenths &&
+        (g_seq_loose ? fcworld_idle(&g_world) : fcworld_can_submit(&g_world))) {
         if (!load_sequence_frame(g_seq_next, &frame)) {
             g_seq_count = g_seq_next;
             return;
@@ -167,7 +168,7 @@ static void publish_sequence(void) {
     if (!converting) {
         /* The engine finished rendering recorded frame g_seq_next. */
         bool free = fcbus_core_back_is_free(core) &&
-                    (g_seq_loose || submitted || fcworld_idle(&g_world));
+                    (g_seq_loose || submitted || fcworld_can_submit(&g_world));
         if (!free) {
             /* Device: wait up to 50 ms (3 heartbeats) while a world generation
              * holds the buffer, then drop. */
@@ -178,7 +179,7 @@ static void publish_sequence(void) {
                 return;
             }
             waited = 0;
-            if (submitted) fcworld_release(&g_world);   /* commits without a picture */
+            if (submitted) fcworld_abandon(&g_world);   /* its picture never shows */
             if (g_world_log) fprintf(g_world_log, "drop,%u,%u\n", core->stats.frames, g_seq_next);
             g_seq_next++;
             submitted = loaded = false;
@@ -392,10 +393,11 @@ void fcpico_cart_shutdown(void) {
         const fcworld_stats_t *ws = &g_world.stats;
         fprintf(g_world_log,
                 "stats,idle=%u,chr=%u,oam=%u,wait_shown=%u,chr_tiles=%u,cache_hits=%u,"
-                "commits=%u,deferred=%u,unchanged=%u,clears=%u,busy_max=%u\n",
+                "commits=%u,deferred=%u,unchanged=%u,clears=%u,busy_max=%u,queued=%u,promoted=%u\n",
                 g_stage_beats[FCWORLD_IDLE], g_stage_beats[FCWORLD_CHR], g_stage_beats[FCWORLD_OAM],
                 g_stage_beats[FCWORLD_WAIT_SHOWN], ws->chr_tiles, ws->cache_hits, ws->commits,
-                ws->deferred_heartbeats, ws->unchanged, ws->clears, ws->busy_heartbeats_max);
+                ws->deferred_heartbeats, ws->unchanged, ws->clears, ws->busy_heartbeats_max,
+                ws->queued, ws->promoted);
         fclose(g_world_log);
         g_world_log = NULL;
     }

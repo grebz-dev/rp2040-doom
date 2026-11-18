@@ -206,15 +206,17 @@ static uint8_t world_submit_frame(void) {
     return reserved ? fcworld_submit_held(&world, &world_frame) : 0xFF;
 }
 
-/* Resolve runs before visplanes and wall columns are drawn: starting the
- * generation here overlaps its CHR uploads with the rest of the render.
- * Idle means the previous generation is shown, so palette
- * planning against shown_state stays valid. */
+/* Resolve runs before visplanes and wall columns are drawn: submitting the
+ * generation here overlaps its CHR uploads with the rest of the render. If
+ * the previous generation is still in flight, this one queues behind it and
+ * starts uploading the moment it is shown. Palettes are planned against the
+ * last submitted generation, which is the one on screen when this one
+ * commits. */
 void fcpico_world_resolved(void)
 {
     if (!converter_ready || world_early) return;
     uint32_t saved = save_and_disable_interrupts();
-    bool ready = bus.core.proto == FCBUS_PROTO_V5 && fcworld_idle(&world);
+    bool ready = bus.core.proto == FCBUS_PROTO_V5 && fcworld_can_submit(&world);
     restore_interrupts(saved);
     if (!ready) return;
     (void)fcpico_world_prepare(&world_frame, world.shown_gen);
@@ -255,9 +257,10 @@ void fcvideo_frame_end(int palette_num, int video_type)
     if (!fcbus_device_back_is_free(&bus)) {
 #if FCPICO_WORLD_SPRITES
         if (world_early) {
-            /* Not expected: an early submission needs the shown generation,
-             * which frees the back buffer. Let it commit without a picture. */
-            fcworld_release(&world);
+            /* Its picture is dropped, so its sprites must never show. */
+            uint32_t lock = save_and_disable_interrupts();
+            fcworld_abandon(&world);
+            restore_interrupts(lock);
             world_early = false;
         } else {
             (void)fcpico_world_take(&world_frame);
@@ -456,7 +459,8 @@ void fcvideo_frame_end(int palette_num, int video_type)
 #if FCPICO_WORLD_SPRITES
         const fcpico_world_stats_t *ws = fcpico_world_stats();
         printf("world admitted=%lu candidates=%lu streamed=%lu/%lu/%lu gens=%lu packets=%lu "
-               "resends=%lu tiles=%lu hits=%lu deferred=%lu busy_max=%lu stalls=%lu errors=%lu\n",
+               "resends=%lu tiles=%lu hits=%lu deferred=%lu busy_max=%lu stalls=%lu errors=%lu "
+               "queued=%lu\n",
                (unsigned long)ws->admitted, (unsigned long)ws->candidates,
                (unsigned long)ws->streamed_budget, (unsigned long)ws->streamed_effect,
                (unsigned long)ws->streamed_lookup, (unsigned long)world.stats.generations,
@@ -464,7 +468,8 @@ void fcvideo_frame_end(int palette_num, int video_type)
                (unsigned long)world.stats.chr_tiles, (unsigned long)world.stats.cache_hits,
                (unsigned long)world.stats.deferred_heartbeats,
                (unsigned long)world.stats.busy_heartbeats_max,
-               (unsigned long)world.stats.stalls, (unsigned long)world_errors);
+               (unsigned long)world.stats.stalls, (unsigned long)world_errors,
+               (unsigned long)world.stats.queued);
         if (ws->timed_frames) {
             printf("world_us resolve=%lu/%lu build=%lu/%lu frames=%lu\n",
                    (unsigned long)(ws->resolve_us_total / ws->timed_frames),
