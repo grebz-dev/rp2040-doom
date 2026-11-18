@@ -6,16 +6,32 @@ set(WORLD_TOOLS ${CMAKE_CURRENT_LIST_DIR}/../../tools)
 set(WORLD_OUTPUT ${CMAKE_CURRENT_BINARY_DIR})
 set(WORLD_BIN ${WORLD_OUTPUT}/world_atlas.bin)
 set(WORLD_IDENTITY ${WORLD_OUTPUT}/world_atlas_identity.h)
+set(WORLD_REVIEWED_SCOPE ${CMAKE_CURRENT_LIST_DIR}/../../assets/world-sprite-scope.json)
+# The reviewed shareware scope, another scope file, or "auto": families and
+# roles from src/doom/info.c and the WAD, ranked by map placements and trimmed
+# to the atlas flash region (tools/world_scope.py).
+set(FCPICO_WORLD_SCOPE "${WORLD_REVIEWED_SCOPE}" CACHE STRING
+    "World sprite scope JSON, or auto to derive it from the WAD")
+option(FCPICO_WORLD_SCENERY "With FCPICO_WORLD_SCOPE=auto, include map decorations" OFF)
+set(WORLD_SCOPE_ARGS --scope ${FCPICO_WORLD_SCOPE})
+if(FCPICO_WORLD_SCOPE STREQUAL "auto" AND FCPICO_WORLD_SCENERY)
+    list(APPEND WORLD_SCOPE_ARGS --scenery)
+endif()
+set(WORLD_SCOPE_DEPENDS ${WORLD_REVIEWED_SCOPE} ${WORLD_TOOLS}/world_scope.py
+    ${CMAKE_CURRENT_LIST_DIR}/../../../src/doom/info.c)
+if(NOT FCPICO_WORLD_SCOPE STREQUAL "auto")
+    list(APPEND WORLD_SCOPE_DEPENDS ${FCPICO_WORLD_SCOPE})
+endif()
 add_custom_command(
     OUTPUT ${WORLD_BIN} ${WORLD_IDENTITY} ${WORLD_OUTPUT}/world_atlas.json
     COMMAND ${Python3_EXECUTABLE} ${WORLD_TOOLS}/build_world_atlas.py ${FCPICO_WORLD_WAD}
-        --scope ${CMAKE_CURRENT_LIST_DIR}/../../assets/world-sprite-scope.json
+        ${WORLD_SCOPE_ARGS}
         --info ${CMAKE_CURRENT_LIST_DIR}/../../../src/doom/info.h
         --layout ${CMAKE_CURRENT_LIST_DIR}/../flash_layout.h -o ${WORLD_OUTPUT}
     WORKING_DIRECTORY ${WORLD_TOOLS}
     DEPENDS ${FCPICO_WORLD_WAD} ${WORLD_TOOLS}/build_world_atlas.py
         ${WORLD_TOOLS}/build_world_sprite_art.py ${WORLD_TOOLS}/audio/wadextract.py
-        ${CMAKE_CURRENT_LIST_DIR}/../../assets/world-sprite-scope.json
+        ${WORLD_SCOPE_DEPENDS}
         ${CMAKE_CURRENT_LIST_DIR}/../../../src/doom/info.h
         ${CMAKE_CURRENT_LIST_DIR}/../flash_layout.h
     VERBATIM)

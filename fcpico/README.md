@@ -332,6 +332,24 @@ World sprites are generated at build time from your IWAD
 sprite families, their reviewed palette overrides and exclusivity. Families
 outside the atlas are streamed with the background.
 
+For other WADs, configure with `-DFCPICO_WORLD_SCOPE=auto` (for
+`build_device.sh`, pass it in `FCPICO_EXTRA_CMAKE_ARGS`).
+`tools/world_scope.py` then takes the families from the engine's own
+`src/doom/info.c`, following every state of each thing type:
+
+- Monsters (`MF_COUNTKILL`, or shootable with an attack) are enemies.
+- `MF_SPECIAL` things are pickups.
+- With `-DFCPICO_WORLD_SCENERY=ON`, other map-placed things are scenery. They
+  use their spawn sprites only.
+
+The player, missiles and effects stay streamed. Families are ranked enemies,
+then pickups, then scenery, and within a role by how often the WAD's maps
+place them. When the atlas would exceed its flash region, the lowest-ranked
+families are dropped and streamed; `world_atlas.json` lists them under
+`trimmed_families`. Reviewed palettes still apply to families both scopes
+share. On the shareware IWAD the automatic scope selects the same families as
+the reviewed one.
+
 ![Native world sprites](docs/screenshots/world-sprites.png)
 
 ## Licensing

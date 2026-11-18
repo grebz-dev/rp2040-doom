@@ -30,12 +30,14 @@ from PIL import Image, ImageDraw
 
 from audio.wadextract import read_wad
 from build_world_sprite_art import decode_patch
+import world_scope
 
 ROOT = Path(__file__).resolve().parents[2]
 MAGIC, VERSION = 0x41574346, 2
 HEADER = 48
 LOCAL_COLORS = 15
 FAMILY_RECORD = 16 + 2 * 15 * 64
+DISTANCE_TABLE_BYTES = 0   # table at header offset 40, unused by format v2
 TABLE_SCALE = 300.0
 FIXED = ((0x07, 0x18, 0x26), (0x12, 0x38, 0x16))   # sprite palettes 1 and 3
 # $0D is "blacker than black"; $xE/$xF other than $0F duplicate black.
@@ -255,8 +257,28 @@ def tables(centers: np.ndarray, lab_nes: np.ndarray) -> tuple[np.ndarray, np.nda
             .astype(np.uint8))
 
 
+def family_bytes(views: dict, lumps: dict[str, bytes]) -> tuple[int, int]:
+    """Atlas bytes one family adds before the 4-byte aligned patch table (its
+    entries and record) and after it (patch records and 4bpp texels, read
+    from the patch headers before decoding)."""
+    before = FAMILY_RECORD + 16 * (1 + max(frame for frame, _ in views))
+    after = 0
+    for lump in {lump for lump, _ in views.values()}:
+        width, height = struct.unpack_from('<hh', lumps[lump])
+        after += 12 + (max(width, 0) + 1) // 2 * max(height, 0)
+    return before, after
+
+
+def atlas_bytes(sprites: int, sizes: list[tuple[int, int]]) -> int:
+    """Exact atlas size for families with these family_bytes."""
+    before = HEADER + 4 * sprites + DISTANCE_TABLE_BYTES + sum(b for b, _ in sizes)
+    return ((before + 3) & ~3) + sum(a for _, a in sizes)
+
+
 def build(wad: Path, scope: dict, info_h: Path, output: Path,
-          review: list[str] | None = None) -> dict:
+          review: list[str] | None = None, max_bytes: int | None = None) -> dict:
+    """`max_bytes` drops whole families, lowest priority first (the scope's
+    `priority` list, else its family order), until the atlas fits."""
     data = wad.read_bytes()
     lumps = read_wad(data)
     if len(lumps.get('PLAYPAL', b'')) < 768:
@@ -277,6 +299,13 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
             missing.append(family)
             continue
         families[family] = family_views(family, members)
+    trimmed = []
+    if max_bytes is not None:
+        sizes = {family: family_bytes(views, lumps) for family, views in families.items()}
+        order = [f for f in scope.get('priority', scope['families']) if f in families]
+        while order and atlas_bytes(len(enum), [sizes[f] for f in order]) > max_bytes:
+            trimmed.insert(0, order.pop())
+        families = {family: families[family] for family in order}
 
     family_records, family_report, review_rows = [], {}, []
     patch_ids: dict[str, int] = {}
@@ -363,6 +392,7 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
         family_table += np.vstack([sel, pad]).tobytes() + np.vstack([mapping, pad]).tobytes()
     assert len(family_table) == FAMILY_RECORD * len(family_records)
     distance_table = b''
+    assert len(distance_table) == DISTANCE_TABLE_BYTES
 
     sprite_off = HEADER
     entry_off = sprite_off + len(sprite_table)
@@ -424,6 +454,7 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
         'patches': len(patch_records), 'entries': len(entries) // 2,
         'fixed_palettes': {'1': [f'{c:02X}' for c in FIXED[0]], '3': [f'{c:02X}' for c in FIXED[1]]},
         'families': family_report, 'missing_families': missing,
+        'trimmed_families': trimmed,
     }
     (output / 'world_atlas.json').write_text(json.dumps(manifest, indent=2) + '\n')
     return manifest
@@ -432,20 +463,32 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('wad', type=Path)
-    parser.add_argument('--scope', type=Path, default=ROOT / 'fcpico/assets/world-sprite-scope.json')
+    parser.add_argument('--scope', default=str(ROOT / 'fcpico/assets/world-sprite-scope.json'),
+                        help="reviewed scope JSON, or 'auto' to derive families and roles from "
+                             "the engine's info.c and the WAD (reviewed palettes still apply)")
+    parser.add_argument('--scenery', action='store_true',
+                        help="with --scope auto: also map-placed decorations and barrels")
     parser.add_argument('--info', type=Path, default=ROOT / 'src/doom/info.h')
     parser.add_argument('--layout', type=Path, default=ROOT / 'fcpico/port/flash_layout.h')
     parser.add_argument('-o', '--output', type=Path, required=True)
     parser.add_argument('--review', default='', help='comma-separated lumps for a 3x review sheet')
     args = parser.parse_args()
-    manifest = build(args.wad, json.loads(args.scope.read_text()), args.info, args.output,
-                     [n for n in args.review.split(',') if n])
+    reviewed_path = ROOT / 'fcpico/assets/world-sprite-scope.json'
+    if args.scope == 'auto':
+        scope = world_scope.auto_scope(args.wad.read_bytes(), args.info.with_suffix('.c'),
+                                       args.scenery, json.loads(reviewed_path.read_text()))
+    else:
+        scope = json.loads(Path(args.scope).read_text())
     layout = dict(re.findall(r'#define\s+(FLASH_WORLD_MAX)\s+(0x[0-9A-Fa-f]+)u',
                              args.layout.read_text()))
-    if manifest['bytes'] > int(layout['FLASH_WORLD_MAX'], 16):
+    limit = int(layout['FLASH_WORLD_MAX'], 16)
+    manifest = build(args.wad, scope, args.info, args.output,
+                     [n for n in args.review.split(',') if n], limit)
+    if manifest['bytes'] > limit:
         raise SystemExit(f"atlas {manifest['bytes']} bytes exceeds FLASH_WORLD_MAX")
     print(f"world atlas: {len(manifest['families'])} families, {manifest['patches']} patches, "
-          f"{manifest['bytes']} bytes; missing {manifest['missing_families']}")
+          f"{manifest['bytes']} bytes; missing {manifest['missing_families']}; "
+          f"trimmed to fit {manifest['trimmed_families']}")
     return 0
 
 
