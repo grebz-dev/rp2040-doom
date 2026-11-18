@@ -64,9 +64,6 @@ applies, and a workaround where one exists.
   effects.** Built with GCC 13, it regenerates a WHX of the same size whose
   picture data plays identically (host demo 1, 400 frames). About 112 KB of
   sound-effect bytes differ; FC PICO synthesizes effects from the WAD instead.
-- **Two host engine golden tests are stale.** `engine_host_determinism` and
-  `engine_title_menu_golden` compare against frame hashes recorded before the
-  native HUD and world sprite changes, and fail. `engine_input_walk` passes.
 
 ## Coverage
 
