@@ -61,9 +61,6 @@ applies, and a workaround where one exists.
 - **`whd_gen` does not build with the host GCC used for development** (an
   error in `src/whd_gen/whd_gen.cpp`). Host engine builds should target
   `doom_tiny_fcpico` (and `host_shim_test`) instead of `all`.
-- **Two host engine golden tests are stale.** `engine_host_determinism` and
-  `engine_title_menu_golden` compare against frame hashes recorded before the
-  native HUD and world sprite changes, and fail. `engine_input_walk` passes.
 
 ## Coverage
 

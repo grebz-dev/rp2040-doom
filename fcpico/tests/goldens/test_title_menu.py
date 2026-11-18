@@ -23,7 +23,9 @@ def main() -> int:
             command = [str(executable), "--whx", str(whx), "--frames", "150",
                        "--lockstep", "--dump-8bit", str(output)]
             if name == "menu":
-                command += ["--menu-at", "60"]
+                # Doom's own menu, composed into the frame; consoles with
+                # native menus get it from the boot ROM instead.
+                command += ["--menu-at", "60", "--streamed-ui"]
             subprocess.run(command, capture_output=True, text=True, timeout=30, check=True)
             frame = output / "frame000100.raw"
             digest = hashlib.sha256(frame.read_bytes()).hexdigest()
