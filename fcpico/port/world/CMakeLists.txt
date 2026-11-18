@@ -35,6 +35,12 @@ endif()
 if(FCPICO_WORLD_LOOSE)
     target_compile_definitions(doom_tiny_fcpico PRIVATE FCPICO_WORLD_LOOSE=1)
 endif()
+# Match native sprite colours to Doom's sector/distance lighting (atlas light
+# bands). OFF draws every native sprite at full brightness, as before.
+option(FCPICO_WORLD_LIGHTING "Light native world sprites like the streamed view" ON)
+if(NOT FCPICO_WORLD_LIGHTING)
+    target_compile_definitions(doom_tiny_fcpico PRIVATE FCPICO_WORLD_LIGHTING=0)
+endif()
 if(PICO_ON_DEVICE)
     add_custom_target(fcpico_doom_world_uf2
         COMMAND ${Python3_EXECUTABLE} ${WORLD_TOOLS}/whx2uf2.py

@@ -87,7 +87,7 @@
     "actors over the per-generation tile, OAM or scanline budget"
   ],
   "runtime_identity": "engine sprite enum (info.h), frame and rotation; each lookup is checked against the engine's sprite width and offsets before admission",
-  "palette_note": "Each family keeps 15 local source colours and per-NES-colour error tables. Up to two 3-colour candidates per family become runtime sprite palettes 0/2; each 8x8 tile picks the best loaded palette, including fixed HUD palettes 1 (07 18 26) and 3 (12 38 16). 'palette_overrides' supplies reviewed candidates first; the block-clustered fit fills the rest. Automatic fits avoid NES olive and dark teal. Reviewed 2026-10-03 against user notes.",
+  "palette_note": "Each family keeps 15 local source colours and per-NES-colour error tables. Up to two 3-colour candidates per family become runtime sprite palettes 0/2; each 8x8 tile picks the best loaded palette, including fixed HUD palettes 1 (07 18 26) and 3 (12 38 16). 'palette_overrides' supplies reviewed candidates first; the block-clustered fit fills the rest. Automatic fits avoid NES olive and dark teal. Reviewed 2026-10-03 against user notes. Overrides apply at full brightness; darker light bands darken them keeping their hue.",
   "palette_overrides": {
     "POSS": [
       [

@@ -62,8 +62,10 @@ bool fcworld_actor_fits(unsigned tiles, bool was_native);
 /* Atlas                                                                      */
 /* ------------------------------------------------------------------------ */
 #define FCWORLD_ATLAS_MAGIC 0x41574346u /* "FCWA" */
-#define FCWORLD_ATLAS_VERSION 2
+#define FCWORLD_ATLAS_VERSION 3
 #define FCWORLD_LOCAL_COLORS 15
+/** Doom light levels 0..31 in bands of four (build_world_atlas.LIGHT_BANDS). */
+#define FCWORLD_LIGHT_BANDS 8
 /** Fixed HUD sprite palettes 1 and 3 (build_world_atlas.FIXED). */
 #define FCWORLD_FIXED_PALETTE1_INIT { 0x07, 0x18, 0x26 }
 #define FCWORLD_FIXED_PALETTE3_INIT { 0x12, 0x38, 0x16 }
@@ -76,15 +78,20 @@ typedef struct {
     const uint8_t *pixels;
 } fcworld_patch_t;
 
-/** Per-family colour model: 15 local source colours (texel values 1..15) with
- *  u8 error tables against all 64 NES colours, plus two candidate palettes. */
+/** Per-family colour model at one light band: 15 local source colours
+ *  (texel values 1..15) as Doom's COLORMAP lights them, two candidate
+ *  palettes for that band, and their errors against the 64 NES colours
+ *  (fcworld_family_error). Band 0 is unlit and uses exact u8 tables. */
 typedef struct {
-    const uint8_t *candidates;   /**< 2 x 3 NES colours */
+    const uint8_t *candidates;   /**< 2 x 3 NES colours for this band */
     uint8_t flags;               /**< FCWORLD_FAMILY_* */
     uint8_t count;               /**< local colours in use */
+    uint8_t band;                /**< light band 0..FCWORLD_LIGHT_BANDS-1 */
     uint8_t weight[16];          /**< tile-choice weight per texel value */
-    const uint8_t *select;       /**< [15][64] palette-choice error */
-    const uint8_t *map;          /**< [15][64] index-mapping error */
+    const uint8_t *select;       /**< [15][64] palette-choice error, band 0 */
+    const uint8_t *map;          /**< [15][64] index-mapping error, band 0 */
+    const uint8_t *centres;      /**< [15][4] s16 Q14 OKLab L,a,b,chroma at this band */
+    const uint8_t *nes;          /**< [64][4] s16 Q14 OKLab of the NES colours */
 } fcworld_family_t;
 #define FCWORLD_FAMILY_ENEMY 0x01
 #define FCWORLD_FAMILY_EXCLUSIVE 0x02
@@ -96,6 +103,7 @@ typedef struct {
     uint16_t patch_count;
     uint16_t family_count;
     uint32_t identity;
+    const uint8_t *nes;     /**< [64][4] s16 Q14 OKLab L,a,b,chroma */
 } fcworld_atlas_t;
 
 /** Validates header, tables and every patch extent. False leaves *atlas unusable. */
@@ -103,7 +111,15 @@ bool fcworld_atlas_open(fcworld_atlas_t *atlas, const uint8_t *data, uint32_t si
 /** Patch for one engine sprite/frame/rotation (rotation 0 for unrotated frames). */
 bool fcworld_atlas_lookup(const fcworld_atlas_t *atlas, int sprite, int frame, int rotation,
                           bool *flip, fcworld_patch_t *patch);
-bool fcworld_atlas_family(const fcworld_atlas_t *atlas, unsigned index, fcworld_family_t *family);
+bool fcworld_atlas_family(const fcworld_atlas_t *atlas, unsigned index, unsigned band,
+                          fcworld_family_t *family);
+/** Error between local colour `v` (1..15) and NES colour `colour` at the
+ *  family's band. Bands above 0 compute it from the lit colours with the
+ *  integer arithmetic of build_world_atlas.band_errors. */
+uint8_t fcworld_family_error(const fcworld_family_t *family, unsigned v, uint8_t colour);
+/** Light band for Doom light level `level` (0 brightest .. 31); an actor keeps
+ *  `previous` (0xFF = none) until the level is two levels past its band. */
+uint8_t fcworld_light_band(int level, uint8_t previous);
 static inline uint8_t fcworld_patch_texel(const fcworld_patch_t *p, int x, int y) {
     return (uint8_t)((p->pixels[y * p->stride + (x >> 1)] >> ((x & 1) * 4)) & 15);
 }
@@ -140,6 +156,7 @@ typedef struct {
     int16_t view_x, view_y, view_width, view_height;
     fcworld_patch_t patch;
     uint32_t scale_step;   /**< quantised iscale to sample at; 0 = quantise iscale */
+    uint8_t light;         /**< light band (fcworld_light_band) */
 } fcworld_projection_t;
 
 typedef struct { int16_t x, y; uint8_t w, h; } fcworld_box_t;
@@ -161,6 +178,7 @@ typedef struct {
     struct {
         fcworld_box_t box;
         uint8_t family;   /**< pixels are that family's local colours 0..15 */
+        uint8_t light;    /**< light band its colours are matched at */
         uint16_t offset;
         uint32_t id;      /**< caller's actor identity across frames, 0 none */
         bool occluded;    /**< some opaque texel was hidden by nearer geometry */

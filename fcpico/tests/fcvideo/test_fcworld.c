@@ -510,11 +510,17 @@ static void test_flipped_cache_reuse(void) {
 }
 
 /* ---------------------------------------------------------------- atlas */
-/* A v2 atlas with one sprite, one family and one 16x16 patch. Local colours
+/* A v3 atlas with one sprite, one family and one 16x16 patch. Local colours
  * 1..3 match NES $0F/$16/$30 exactly; the family candidates are those colours
- * and $0F/$1A/$27. */
-enum { FAMILY_BYTES = 16 + 2 * 15 * 64 };
-static uint8_t atlas_bytes[48 + 4 + 16 + FAMILY_BYTES + 12 + 8 * 16];
+ * and $0F/$1A/$27; every lit band has candidates $0F/$06/$16. Lit colours
+ * and the NES table are zero except where a test sets them. */
+enum {
+    FAMILY_TABLES = 16 + 2 * 15 * 64,
+    FAMILY_CENTRES = FAMILY_TABLES + 6 * (FCWORLD_LIGHT_BANDS - 1),
+    FAMILY_BYTES = FAMILY_CENTRES + FCWORLD_LIGHT_BANDS * 15 * 8,
+    NES_BYTES = 64 * 8,
+};
+static uint8_t atlas_bytes[48 + 4 + 16 + FAMILY_BYTES + NES_BYTES + 12 + 8 * 16];
 static const uint8_t targets[4] = {0, 0x0F, 0x16, 0x30};
 
 static void put16(uint8_t *p, unsigned v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
@@ -523,12 +529,12 @@ static void put32(uint8_t *p, uint32_t v) { for (int i = 0; i < 4; ++i) p[i] = (
 static void make_atlas(fcworld_atlas_t *atlas) {
     uint8_t *d = atlas_bytes;
     memset(d, 0, sizeof atlas_bytes);
-    uint32_t sprites = 48, entries = 52, families = 68, patches = families + FAMILY_BYTES,
-             pixels = patches + 12;
+    uint32_t sprites = 48, entries = 52, families = 68, nes = families + FAMILY_BYTES,
+             patches = nes + NES_BYTES, pixels = patches + 12;
     put32(d, FCWORLD_ATLAS_MAGIC); put16(d + 4, FCWORLD_ATLAS_VERSION); put16(d + 6, 1);
     put32(d + 8, sizeof atlas_bytes); put32(d + 12, 0x1234); put16(d + 16, 1); put16(d + 18, 1);
     put32(d + 20, sprites); put32(d + 24, entries); put32(d + 28, 8); put32(d + 32, patches);
-    put32(d + 36, families);
+    put32(d + 36, families); put32(d + 40, nes);
     put16(d + sprites, 0); d[sprites + 2] = 1; d[sprites + 3] = 0;
     for (int r = 0; r < 8; ++r) put16(d + entries + 2 * r, r == 7 ? 0x8001 : 1);
     uint8_t *f = d + families;
@@ -542,6 +548,10 @@ static void make_atlas(fcworld_atlas_t *atlas) {
             f[16 + (v - 1) * 64 + c] = e;
             f[16 + 15 * 64 + (v - 1) * 64 + c] = e;
         }
+    for (int band = 1; band < FCWORLD_LIGHT_BANDS; ++band) {
+        const uint8_t lit[6] = {0x0F, 0x06, 0x16, 0x0F, 0x06, 0x16};
+        memcpy(f + FAMILY_TABLES + (band - 1) * 6, lit, 6);
+    }
     uint8_t *rec = d + patches;
     rec[0] = 16; rec[1] = 8; put16(rec + 2, 8); put16(rec + 4, 8); rec[6] = 0;
     put32(rec + 8, pixels);
@@ -562,13 +572,47 @@ static void test_atlas_v2_lookup_and_family(void) {
     CHECK(fcworld_atlas_lookup(&atlas, 0, 0, 7, &flip, &patch) && flip);
     CHECK(!fcworld_atlas_lookup(&atlas, 0, 1, 0, &flip, &patch));
     fcworld_family_t family;
-    CHECK(fcworld_atlas_family(&atlas, 0, &family));
+    CHECK(fcworld_atlas_family(&atlas, 0, 0, &family));
     CHECK_EQ(family.count, 3);
     CHECK_EQ(family.weight[2], 1);
     CHECK_EQ(family.select[1 * 64 + 0x16], 0);
-    atlas_bytes[4] = 1;  /* version 1 is refused */
+    CHECK_EQ(fcworld_family_error(&family, 2, 0x16), 0);
+    CHECK_EQ(fcworld_family_error(&family, 2, 0x17), 100);
+    atlas_bytes[4] = 2;  /* older formats are refused */
     CHECK(!fcworld_atlas_open(&atlas, atlas_bytes, sizeof atlas_bytes));
     atlas_bytes[4] = FCWORLD_ATLAS_VERSION;
+}
+
+static void test_light_bands_use_lit_colours(void) {
+    fcworld_atlas_t atlas;
+    make_atlas(&atlas);
+    uint8_t *f = atlas_bytes + 68;
+    uint8_t *nes = atlas_bytes + 68 + FAMILY_BYTES;
+    /* Band 3, local colour 2: L 0.25, a 0.05, b 0, chroma 0.05 (Q14). NES $06:
+     * L 0.40, a 0.12, b 0.03, chroma hypot = 0.1237. */
+    int16_t centre[4] = {4096, 819, 0, 819}, colour[4] = {6554, 1966, 492, 2027};
+    for (int i = 0; i < 4; ++i) {
+        put16(f + FAMILY_CENTRES + (3 * 15 + 1) * 8 + 2 * i, (uint16_t)centre[i]);
+        put16(nes + 0x06 * 8 + 2 * i, (uint16_t)colour[i]);
+    }
+    fcworld_family_t family;
+    CHECK(fcworld_atlas_family(&atlas, 0, 3, &family));
+    CHECK_EQ(family.band, 3);
+    CHECK_EQ(family.candidates[1], 0x06);                 /* lit band candidates */
+    /* dl=-2458 dc=-1208 hue=1147^2+492^2-1208^2=98409:
+     * d=(dl^2+dc^2+3*hue)>>2=1949063, isqrt 1396, (1396*600+8192)>>14=51
+     * (build_world_atlas.band_errors gives the same). */
+    CHECK_EQ(fcworld_family_error(&family, 2, 0x06), 51);
+    CHECK(!fcworld_atlas_family(&atlas, 0, FCWORLD_LIGHT_BANDS, &family));
+
+    /* Bands of four levels, kept until two levels past the band. */
+    CHECK_EQ(fcworld_light_band(0, 0xFF), 0);
+    CHECK_EQ(fcworld_light_band(13, 0xFF), 3);
+    CHECK_EQ(fcworld_light_band(17, 3), 3);
+    CHECK_EQ(fcworld_light_band(18, 3), 4);
+    CHECK_EQ(fcworld_light_band(10, 3), 3);
+    CHECK_EQ(fcworld_light_band(9, 3), 2);
+    CHECK_EQ(fcworld_light_band(40, 0xFF), 7);
 }
 
 /* ---------------------------------------------------------------- raster */
@@ -666,6 +710,7 @@ static void test_plan_respects_shown_palettes(void) {
     fcworld_raster_reset(&raster);
     raster.count = 1;
     raster.actor[0].family = 0;
+    raster.actor[0].light = 0;
     uint8_t palettes[6];
     /* Both slots free: the first candidate takes palette 0. */
     fcworld_palette_state_t shown = {{0x01, 0x11, 0x21, 0x02, 0x12, 0x22}, 0};
@@ -702,6 +747,7 @@ static void test_frame_dedupes_mirrors_and_limits_lines(void) {
     raster.count = 1;
     raster.actor[0].box = (fcworld_box_t){10, 50, 16, 8};
     raster.actor[0].family = 0;
+    raster.actor[0].light = 0;
     raster.actor[0].offset = 0;
     for (int y = 0; y < 8; ++y)
         for (int x = 0; x < 8; ++x) {
@@ -721,6 +767,7 @@ static void test_frame_dedupes_mirrors_and_limits_lines(void) {
     raster.count = 1;
     raster.actor[0].box = (fcworld_box_t){0, 60, 72, 8};
     raster.actor[0].family = 0;
+    raster.actor[0].light = 0;
     memset(raster.pixels, 1, 72 * 8);
     raster.used = 72 * 8;
     CHECK(!fcworld_frame_build(&frame, &raster, &atlas, &shown));
@@ -810,6 +857,7 @@ static void test_core_gate_matches_console_generation(void) {
 
 int main(void) {
     test_atlas_v2_lookup_and_family();
+    test_light_bands_use_lit_colours();
     test_raster_is_anchored_and_scale_quantised();
     test_plan_respects_shown_palettes();
     test_frame_dedupes_mirrors_and_limits_lines();

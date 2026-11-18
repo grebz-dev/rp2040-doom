@@ -30,6 +30,9 @@
 #endif
 
 #define MAX_CANDIDATES 32
+#ifndef FCPICO_WORLD_LIGHTING
+#define FCPICO_WORLD_LIGHTING 1
+#endif
 
 extern uint8_t inhelpscreens;  /* m_menu.c */
 
@@ -87,18 +90,36 @@ void fcpico_world_frame_begin(void) {
     if (frame_enabled) stats.enabled_frames++;
 }
 
-/* Scale step each actor was drawn at last frame (hysteresis). */
-static struct { uint32_t id, step; } last_steps[FCWORLD_MAX_ACTORS], next_steps[FCWORLD_MAX_ACTORS];
+/* Scale step and light band each actor was drawn at last frame (hysteresis). */
+static struct { uint32_t id, step; uint8_t light; } last_steps[FCWORLD_MAX_ACTORS],
+    next_steps[FCWORLD_MAX_ACTORS];
 static unsigned last_step_count, next_step_count;
 /* The generation last submitted: what the console shows when the next one is
  * built, so fcworld_frame_limit may reuse its tiles. */
 static fcworld_frame_t last_submitted;
 static unsigned tile_budget = FCWORLD_TILE_BUDGET;
 
-static uint32_t previous_step(uint32_t id) {
-    for (unsigned i = 0; i < last_step_count; ++i)
-        if (last_steps[i].id == id) return last_steps[i].step;
+static uint32_t previous_step(uint32_t id, uint8_t *light) {
+    for (unsigned i = 0; i < last_step_count; ++i) {
+        if (last_steps[i].id == id) {
+            *light = last_steps[i].light;
+            return last_steps[i].step;
+        }
+    }
+    *light = 0xFF;
     return 0;
+}
+
+/* Doom light level 0 (brightest) .. 31 the software renderer would draw this
+ * sprite at; -1 for fixed colormaps that are not plain light levels
+ * (invulnerability), which stay streamed. */
+static int sprite_light_level(const vissprite_t *vis) {
+#if USE_LIGHTMAP_INDEXES
+    int level = vis->colormap;
+#else
+    int level = vis->colormap ? (int)((vis->colormap - colormaps) / 256) : -1;
+#endif
+    return level >= 0 && level < 32 ? level : -1;
 }
 
 void fcpico_world_set_tile_budget(unsigned budget) { tile_budget = budget; }
@@ -106,7 +127,8 @@ void fcpico_world_set_tile_budget(unsigned budget) { tile_budget = budget; }
 bool fcpico_world_defer(const vissprite_t *vis, int sprite, int frame, int rotation,
                         int lump, bool flip, uint32_t flags, uint32_t id) {
     if (!frame_enabled) return false;
-    if (flags & (MF_SHADOW | MF_TRANSLATION)) {
+    int level = sprite_light_level(vis);
+    if ((flags & (MF_SHADOW | MF_TRANSLATION)) || level < 0) {
         stats.streamed_effect++;
         return false;
     }
@@ -134,8 +156,10 @@ bool fcpico_world_defer(const vissprite_t *vis, int sprite, int frame, int rotat
     p.view_y = (int16_t)viewwindowy;
     p.view_width = (int16_t)viewwidth;
     p.view_height = (int16_t)viewheight;
-    uint32_t previous = previous_step(id);
+    uint8_t previous_light;
+    uint32_t previous = previous_step(id, &previous_light);
     p.scale_step = fcworld_scale_step(p.iscale, previous);
+    p.light = FCPICO_WORLD_LIGHTING ? fcworld_light_band(level, previous_light) : 0;
     fcworld_box_t box;
     if (!fcworld_bounds(&p, &box) || !fcworld_actor_fits(fcworld_box_tiles(&box), previous != 0) ||
         candidate_count == MAX_CANDIDATES) {
@@ -217,6 +241,7 @@ void fcpico_world_resolve(void) {
         raster.actor[raster.count - 1].id = c->id;
         next_steps[next_step_count].id = c->id;
         next_steps[next_step_count].step = c->projection.scale_step;
+        next_steps[next_step_count].light = c->projection.light;
         next_step_count++;
     }
     memcpy(last_steps, next_steps, sizeof next_steps);

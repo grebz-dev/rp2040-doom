@@ -14,6 +14,12 @@ loads candidates into sprite palettes 0 and 2, and every 8x8 tile picks the best
 of the four loaded palettes (1 and 3 are fixed by the native HUD) using the
 NES colour-distance table stored here. Source colours are chroma-boosted before
 matching: Doom's desaturated browns and greens otherwise land on NES greys.
+
+Lighting (format v3): Doom darkens sprites through COLORMAP by sector light and
+distance. For each of LIGHT_BANDS bands the family stores its 15 colours as lit
+by the WAD's own COLORMAP (Q14 OKLab, with chroma) and two darkened candidate
+palettes. The runtime computes colour errors for bands above 0 with the same
+integer arithmetic as `band_errors`; band 0 keeps the exact u8 tables.
 """
 from __future__ import annotations
 
@@ -32,10 +38,18 @@ from audio.wadextract import read_wad
 from build_world_sprite_art import decode_patch
 
 ROOT = Path(__file__).resolve().parents[2]
-MAGIC, VERSION = 0x41574346, 2
+MAGIC, VERSION = 0x41574346, 3
 HEADER = 48
 LOCAL_COLORS = 15
-FAMILY_RECORD = 16 + 2 * 15 * 64
+LIGHT_BANDS = 8                  # Doom light levels 0..31, four per band
+LIGHT_LEVELS = 32
+Q14 = 16384
+# A darkened reviewed palette is kept unless a fresh fit is this much better.
+DARKEN_TOLERANCE = 1.25
+BAND_CANDIDATES = 6 * (LIGHT_BANDS - 1)
+BAND_CENTRES = LIGHT_BANDS * LOCAL_COLORS * 8
+FAMILY_RECORD = 16 + 2 * 15 * 64 + BAND_CANDIDATES + BAND_CENTRES
+NES_LAB_BYTES = 64 * 8
 TABLE_SCALE = 300.0
 FIXED = ((0x07, 0x18, 0x26), (0x12, 0x38, 0x16))   # sprite palettes 1 and 3
 # $0D is "blacker than black"; $xE/$xF other than $0F duplicate black.
@@ -107,6 +121,105 @@ def distances(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     dab = ((a[:, None, 1:] - b[None, :, 1:]) ** 2).sum(axis=2)
     dh2 = np.maximum(dab - (ca - cb) ** 2, 0.0)
     return dl ** 2 + (ca - cb) ** 2 + HUE_WEIGHT * dh2
+
+
+def band_level(band: int) -> int:
+    """Doom light level (0 brightest .. 31) a band's colours are lit at."""
+    return 0 if band == 0 else min(LIGHT_LEVELS - 1, band * 4 + 2)
+
+
+def light_rgb(playpal: np.ndarray, colormap: np.ndarray | None, level: int) -> np.ndarray:
+    """PLAYPAL as drawn at one light level: the WAD's COLORMAP, or a plain
+    RGB fade when the WAD has none (test fixtures)."""
+    if colormap is not None:
+        return playpal[colormap[level]]
+    return np.rint(playpal.astype(np.float64) * (LIGHT_LEVELS - level) / LIGHT_LEVELS
+                   ).astype(np.uint8)
+
+
+def quantise_lab(lab: np.ndarray) -> np.ndarray:
+    """OKLab rows as Q14 integers L, a, b and chroma C (fcworld band errors)."""
+    chroma = np.hypot(lab[:, 1], lab[:, 2])
+    return np.rint(np.column_stack([lab, chroma]) * Q14).astype(np.int64)
+
+
+def isqrt(values: np.ndarray) -> np.ndarray:
+    root = np.floor(np.sqrt(values.astype(np.float64))).astype(np.int64)
+    root -= (root * root > values)
+    root += ((root + 1) * (root + 1) <= values)
+    return root
+
+
+def band_errors(centres_q: np.ndarray, nes_q: np.ndarray) -> np.ndarray:
+    """u8 error, local x NES colour, exactly as fcworld_family_error computes it
+    for bands above 0: `distances` in Q14 integers, sqrt scaled like `tables`."""
+    dl = centres_q[:, None, 0] - nes_q[None, :, 0]
+    da = centres_q[:, None, 1] - nes_q[None, :, 1]
+    db = centres_q[:, None, 2] - nes_q[None, :, 2]
+    dc = centres_q[:, None, 3] - nes_q[None, :, 3]
+    hue = np.maximum(da * da + db * db - dc * dc, 0)
+    d = dl * dl + dc * dc + int(HUE_WEIGHT) * hue
+    return np.minimum((isqrt(np.minimum(d >> 2, 0xFFFFFFFF)) * 600 + 8192) >> 14, 255)
+
+
+def darken_candidates(candidates, sel: np.ndarray, local_weight: np.ndarray,
+                      centres0: np.ndarray, centres: np.ndarray, lab_nes: np.ndarray):
+    """Each candidate colour is darkened as COLORMAP darkens the local colours it
+    displays: scaling linear RGB scales every OKLab component by the same
+    factor, so the colour keeps its (possibly reviewed) hue and is scaled by its
+    members' lit/unlit lightness ratio, then snapped to the nearest NES colour.
+    Palette order is kept so tiles keep their colour roles. Olive and dark teal
+    stay excluded unless the colour itself was one. Colours may collapse; see
+    band_candidates."""
+    def ratio(w: np.ndarray, members: np.ndarray) -> float:
+        return float((w * centres[members, 0]).sum() / max((w * centres0[members, 0]).sum(), 1e-9))
+
+    everyone = np.ones(len(local_weight), bool)
+    family_ratio = ratio(local_weight, everyone)
+    out = []
+    for palette in candidates:
+        owner = sel[:, list(palette)].argmin(axis=1)
+        darker = []
+        for k, colour in enumerate(palette):
+            members = owner == k
+            if members.any() and local_weight[members].sum() > 0:
+                target = lab_nes[colour] * ratio(local_weight[members], members)
+            else:
+                target = lab_nes[colour] * family_ratio
+            allowed = sorted(set(AUTO_CANDIDATES) | {colour})
+            d = distances(target[None, :], lab_nes[allowed])[0]
+            darker.append(int(allowed[int(d.argmin())]))
+        out.append(tuple(darker))
+    return out
+
+
+def band_candidates(candidates, sel: np.ndarray, local_weight: np.ndarray, blocks: np.ndarray,
+                    centres0: np.ndarray, centres: np.ndarray, centres_q: np.ndarray,
+                    lab_nes: np.ndarray, nes_q: np.ndarray, reviewed: int = 0):
+    """Two palettes for one light band. The NES has few dark colours, so simply
+    darkening a palette often repeats a colour and flattens the actor. Keep the
+    darkened reviewed/base palettes only when their colours stay distinct and
+    they fit the lit colours within DARKEN_TOLERANCE of a fresh distinct-colour
+    fit. The first `reviewed` palettes came from palette_overrides: their
+    darkened, repaired form is always kept."""
+    errors = band_errors(centres_q, nes_q).astype(np.float64)
+    fitted = fit_candidates(blocks, errors)
+    darker = darken_candidates(candidates, sel, local_weight, centres0, centres, lab_nes)
+
+    def cost(palette) -> float:
+        return float((blocks @ errors[:, list(palette)].min(axis=1)).sum())
+
+    def repair(palette):
+        out = list(palette)
+        for slot in range(3):
+            if out[slot] in out[:slot]:
+                options = [c for c in AUTO_CANDIDATES if c not in out]
+                out[slot] = min(options, key=lambda c: cost(out[:slot] + [c] + out[slot + 1:]))
+        return tuple(out)
+
+    darker = [repair(d) for d in darker]
+    return [d if n < reviewed or cost(d) <= cost(f) * DARKEN_TOLERANCE else f
+            for n, (d, f) in enumerate(zip(darker, fitted))]
 
 
 def sprite_enum(info_h: Path) -> list[str]:
@@ -255,13 +368,33 @@ def tables(centers: np.ndarray, lab_nes: np.ndarray) -> tuple[np.ndarray, np.nda
             .astype(np.uint8))
 
 
+REVIEW_BANDS = (0, 3, 5, 7)
+
+
+def lit_render(indexed: np.ndarray, band: int, sel, mapping, weights, palettes, band_q, nes_q,
+               nes) -> np.ndarray:
+    """Runtime picture of a patch for an actor at `band` (both candidate
+    palettes loaded): band 0 uses the stored tables, lit bands the integer
+    errors fcworld computes."""
+    if band:
+        errors = band_errors(band_q[band], nes_q)
+        sel = mapping = errors
+    return preview(indexed, sel, mapping, weights, palettes, nes)
+
+
 def build(wad: Path, scope: dict, info_h: Path, output: Path,
-          review: list[str] | None = None) -> dict:
+          review: list[str] | None = None, light_report: bool = False) -> dict:
     data = wad.read_bytes()
     lumps = read_wad(data)
     if len(lumps.get('PLAYPAL', b'')) < 768:
         raise ValueError('missing PLAYPAL')
     playpal = np.frombuffer(lumps['PLAYPAL'][:768], np.uint8).reshape(256, 3)
+    colormap = None
+    if len(lumps.get('COLORMAP', b'')) >= LIGHT_LEVELS * 256:
+        colormap = np.frombuffer(lumps['COLORMAP'][:LIGHT_LEVELS * 256], np.uint8
+                                 ).reshape(LIGHT_LEVELS, 256)
+    lit_lab = [boost_chroma(oklab(light_rgb(playpal, colormap, band_level(b))))
+               for b in range(LIGHT_BANDS)]
     nes = mesen_palette()
     lab_nes = oklab(nes)
     lab_src = boost_chroma(oklab(playpal))
@@ -279,6 +412,8 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
         families[family] = family_views(family, members)
 
     family_records, family_report, review_rows = [], {}, []
+    light_stats: dict[str, np.ndarray] = {}
+    light_rows = []
     patch_ids: dict[str, int] = {}
     patch_records, pixel_blobs, previews = [], [], []
     for number, (family, views) in enumerate(families.items()):
@@ -298,6 +433,13 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
         lut[used] = owner + 1
         sel, mapping = tables(centers, lab_nes)
         weights = color_weights(centers)
+        local_weight = np.array([weight[used][owner == k].sum() for k in range(len(centers))])
+        band_centres = [centers]
+        for band in range(1, LIGHT_BANDS):
+            lit = lit_lab[band][used]
+            band_centres.append(np.array([
+                (lit[owner == k] * weight[used][owner == k][:, None]).sum(axis=0) /
+                max(weight[used][owner == k].sum(), 1e-12) for k in range(len(centers))]))
         blocks = []
         for pixels, _, _ in decoded.values():
             index = np.where(pixels < 0, 0, lut[np.maximum(pixels, 0)])
@@ -314,10 +456,17 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
         candidates = [tuple(sorted(p, key=lambda c: lab_nes[c, 0]))
                       for p in (list(chosen) + list(fitted))[:2]]
         exclusive = family in scope.get('palette_exclusive', []) and len(chosen) >= 2
+        nes_q = quantise_lab(lab_nes)
+        band_q = [quantise_lab(c) for c in band_centres]
+        band_palettes = [band_candidates(candidates, sel, local_weight, np.array(blocks),
+                                         centers, band_centres[b], band_q[b], lab_nes, nes_q,
+                                         reviewed=min(len(chosen), 2))
+                         for b in range(1, LIGHT_BANDS)]
         family_records.append((candidates, scope['families'][family], exclusive, weights,
-                               sel, mapping, len(centers)))
+                               sel, mapping, len(centers), band_palettes, band_q))
         family_report[family] = {'sprite': enum.index(family), 'index': number,
             'candidates': [[f'{c:02X}' for c in p] for p in candidates],
+            'light_candidates': [[[f'{c:02X}' for c in p] for p in band] for band in band_palettes],
             'overridden': len(chosen), 'exclusive': exclusive,
             'weights': [int(w) for w in weights], 'patches': len(decoded)}
         loaded = candidates if exclusive else [*candidates, *FIXED]
@@ -328,6 +477,28 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
             pixel_blobs.append(pack4(indexed))
             runtime = preview(indexed, sel, mapping, weights, loaded, nes)
             previews.append((lump, Image.fromarray(runtime)))
+            if light_report or (review and lump in review):
+                opaque = pixels >= 0
+                for band in range(LIGHT_BANDS):
+                    lit = light_rgb(playpal, colormap, band_level(band))[np.maximum(pixels, 0)]
+                    loaded_b = [*band_palettes[band - 1]] if band else list(candidates)
+                    if not exclusive:
+                        loaded_b += FIXED
+                    new = lit_render(indexed, band, sel, mapping, weights, loaded_b, band_q,
+                                     nes_q, nes)
+                    if light_report:
+                        target = oklab(lit[opaque])
+                        stats = light_stats.setdefault(family, np.zeros((LIGHT_BANDS, 5)))
+                        for column, picture in ((0, runtime), (2, new)):
+                            shown = oklab(picture[..., :3][opaque])
+                            stats[band, column] += np.linalg.norm(shown - target, axis=1).sum()
+                            stats[band, column + 1] += np.abs(shown[:, 0] - target[:, 0]).sum()
+                        stats[band, 4] += opaque.sum()
+                    if review and lump in review and band in REVIEW_BANDS:
+                        source = np.zeros_like(runtime)
+                        source[..., :3] = lit
+                        source[..., 3] = np.where(opaque, 255, 0)
+                        light_rows.append((lump, band, source, runtime, new))
             if review and lump in review:
                 source = np.zeros_like(runtime)
                 source[..., :3] = playpal[np.maximum(pixels, 0)]
@@ -353,7 +524,8 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
                 else:
                     entries += b'\0\0'
     family_table = bytearray()
-    for candidates, role, exclusive, weights, sel, mapping, count in family_records:
+    for (candidates, role, exclusive, weights, sel, mapping, count, band_palettes,
+         band_q) in family_records:
         packed = bytearray(8)   # 4-bit weights for local colours 1..15
         for i, w in enumerate(weights):
             packed[(i + 1) // 2] |= (int(w) & 15) << (((i + 1) & 1) * 4)
@@ -361,8 +533,14 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
         pad = np.full((LOCAL_COLORS - count, 64), 255, np.uint8)
         family_table += bytes((*candidates[0], *candidates[1], flags, count)) + bytes(packed)
         family_table += np.vstack([sel, pad]).tobytes() + np.vstack([mapping, pad]).tobytes()
+        family_table += b''.join(bytes((*p[0], *p[1])) for p in band_palettes)
+        for q in band_q:
+            rows = np.zeros((LOCAL_COLORS, 4), np.int64)
+            rows[:count] = q
+            family_table += rows.astype('<i2').tobytes()
     assert len(family_table) == FAMILY_RECORD * len(family_records)
-    distance_table = b''
+    distance_table = quantise_lab(lab_nes).astype('<i2').tobytes()   # NES colours, Q14
+    assert len(distance_table) == NES_LAB_BYTES
 
     sprite_off = HEADER
     entry_off = sprite_off + len(sprite_table)
@@ -417,6 +595,23 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
                 page.alpha_composite(big, (column * (width + 24), y))
             y += source.shape[0] * 3 + 2
         page.save(output / 'world_atlas_review.png')
+    if light_rows:
+        rows = sorted(light_rows, key=lambda row: (review.index(row[0]), row[1]))
+        width = max(row[2].shape[1] for row in rows) * 3
+        height = sum(row[2].shape[0] * 3 + 16 for row in rows)
+        page = Image.new('RGBA', (width * 3 + 48, height), (40, 40, 40, 255))
+        draw = ImageDraw.Draw(page)
+        y = 0
+        for lump, band, source, old, new in rows:
+            draw.text((0, y), f'{lump} light band {band} (level {band_level(band)}): '
+                              'Doom / unlit native / lit native', fill='white')
+            y += 14
+            for column, image in enumerate((source, old, new)):
+                big = Image.fromarray(image).resize((image.shape[1] * 3, image.shape[0] * 3),
+                                                    Image.NEAREST)
+                page.alpha_composite(big, (column * (width + 24), y))
+            y += source.shape[0] * 3 + 2
+        page.save(output / 'world_atlas_light_review.png')
     manifest = {
         'wad_sha256': hashlib.sha256(data).hexdigest(),
         'atlas_sha256': hashlib.sha256(bytes(body)).hexdigest(),
@@ -424,8 +619,21 @@ def build(wad: Path, scope: dict, info_h: Path, output: Path,
         'patches': len(patch_records), 'entries': len(entries) // 2,
         'fixed_palettes': {'1': [f'{c:02X}' for c in FIXED[0]], '3': [f'{c:02X}' for c in FIXED[1]]},
         'families': family_report, 'missing_families': missing,
+        'colormap': colormap is not None,
     }
     (output / 'world_atlas.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    if light_report:
+        # Mean OKLab distance (and |dL|) between Doom's lit sprite colours and the
+        # native picture, per light band: unlit = before light bands, lit = now.
+        report = {}
+        for family, stats in light_stats.items():
+            n = np.maximum(stats[:, 4], 1)
+            report[family] = {'unlit_de': (stats[:, 0] / n).round(4).tolist(),
+                              'unlit_dl': (stats[:, 1] / n).round(4).tolist(),
+                              'lit_de': (stats[:, 2] / n).round(4).tolist(),
+                              'lit_dl': (stats[:, 3] / n).round(4).tolist(),
+                              'pixels': stats[:, 4].astype(int).tolist()}
+        (output / 'world_atlas_light.json').write_text(json.dumps(report, indent=2) + '\n')
     return manifest
 
 
@@ -436,10 +644,14 @@ def main() -> int:
     parser.add_argument('--info', type=Path, default=ROOT / 'src/doom/info.h')
     parser.add_argument('--layout', type=Path, default=ROOT / 'fcpico/port/flash_layout.h')
     parser.add_argument('-o', '--output', type=Path, required=True)
-    parser.add_argument('--review', default='', help='comma-separated lumps for a 3x review sheet')
+    parser.add_argument('--review', default='', help='comma-separated lumps for a 3x review sheet '
+                        '(also a light band sheet, world_atlas_light_review.png)')
+    parser.add_argument('--light-report', action='store_true',
+                        help='write world_atlas_light.json: colour error against Doom lighting, '
+                             'unlit versus lit native sprites, per family and light band')
     args = parser.parse_args()
     manifest = build(args.wad, json.loads(args.scope.read_text()), args.info, args.output,
-                     [n for n in args.review.split(',') if n])
+                     [n for n in args.review.split(',') if n], args.light_report)
     layout = dict(re.findall(r'#define\s+(FLASH_WORLD_MAX)\s+(0x[0-9A-Fa-f]+)u',
                              args.layout.read_text()))
     if manifest['bytes'] > int(layout['FLASH_WORLD_MAX'], 16):
