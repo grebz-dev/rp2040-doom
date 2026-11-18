@@ -173,3 +173,52 @@ def test_light_bands_follow_colormap(tmp_path):
             assert len(set(palette)) == 3
     nes = np.frombuffer(blob[nes_off:nes_off + 64 * 8], '<i2').reshape(64, 4)
     assert nes[0x30, 0] > nes[0x0F, 0]
+
+
+INFO_C = ROOT.parent / 'src/doom/info.c'
+
+
+def test_auto_scope_roles_from_engine_tables():
+    import world_scope
+    things = struct.pack('<hhhhh', 0, 0, 0, 3001, 7) * 5 + struct.pack('<hhhhh', 0, 0, 0, 2011, 7)
+    wad = make_wad([('E1M1', b''), ('THINGS', things), ('E1M2', b''),
+                    ('THINGS', struct.pack('<hhhhh', 0, 0, 0, 3004, 7) * 2)])
+    scope = world_scope.auto_scope(wad, INFO_C, reviewed={
+        'palette_overrides': {'POSS': [['0F', '1A', '27']], 'NOPE': [['0F', '0F', '0F']]}})
+    roles = scope['families']
+    assert roles['TROO'] == roles['POSS'] == roles['SKUL'] == 'enemy'    # SKUL: shootable attacker
+    assert roles['STIM'] == roles['SHOT'] == 'pickup'
+    assert 'PLAY' not in roles and 'PUFF' not in roles and 'BAL1' not in roles
+    assert 'BAR1' not in roles                                        # scenery only on request
+    # Both map lumps count: imps placed five times outrank zombiemen placed twice.
+    assert scope['placed']['TROO'] == 5 and scope['placed']['POSS'] == 2
+    assert scope['priority'].index('TROO') < scope['priority'].index('POSS')
+    assert scope['priority'].index('POSS') < scope['priority'].index('STIM')   # enemies first
+    assert scope['palette_overrides'] == {'POSS': [['0F', '1A', '27']]}
+    scenery = world_scope.auto_scope(wad, INFO_C, include_scenery=True)['families']
+    assert scenery['BAR1'] == 'scenery' and 'BEXP' not in scenery      # spawn sprites only
+
+
+def test_auto_scope_matches_reviewed_shareware_scope():
+    wad = os.environ.get('FCPICO_AUDIO_WAD')
+    if not wad:
+        pytest.skip('set FCPICO_AUDIO_WAD to verify local shareware assets')
+    import json
+    import world_scope
+    reviewed = json.loads((ROOT / 'assets/world-sprite-scope.json').read_text())
+    auto = world_scope.auto_scope(Path(wad).read_bytes(), INFO_C)['families']
+    for family, role in reviewed['families'].items():
+        assert auto.get(family) == role, family
+
+
+def test_atlas_trims_lowest_priority_families(tmp_path):
+    scope = {'families': {'POSS': 'enemy', 'STIM': 'pickup'}, 'priority': ['POSS', 'STIM']}
+    full = atlas.build(_wad(tmp_path), scope, INFO, tmp_path / 'full')
+    assert full['trimmed_families'] == []
+    trimmed = atlas.build(_wad(tmp_path), scope, INFO, tmp_path / 'trim',
+                          max_bytes=full['bytes'] - 1)
+    assert trimmed['trimmed_families'] == ['STIM'] and list(trimmed['families']) == ['POSS']
+    assert trimmed['bytes'] < full['bytes']
+    # The size estimate is exact up to alignment, so the full atlas fits its own size.
+    again = atlas.build(_wad(tmp_path), scope, INFO, tmp_path / 'exact', max_bytes=full['bytes'])
+    assert again['trimmed_families'] == []
