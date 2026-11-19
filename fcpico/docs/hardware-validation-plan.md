@@ -135,6 +135,27 @@ release candidate.
 
 ## 5. Session procedure (hardware)
 
+### Capture machine setup
+
+```sh
+git clone -b integration/claude-2026-11-17 https://github.com/grebz-dev/rp2040-doom.git
+cd rp2040-doom
+python3 -m venv fcpico/.venv && fcpico/.venv/bin/pip install -r fcpico/tools/requirements.txt
+ffmpeg -version && ffprobe -version     # install ffmpeg if missing
+```
+
+- **Not in git:** the firmware images, the WAD and the host reference
+  streams. Copy the two UF2s (trace and default) from the build machine, and
+  check them against the SHA-256s from the build.
+  `reference.py` also needs a host trace build's `--dump-stream` directory.
+  Copy it over, or build it on the capture machine (needs pico-sdk and the
+  WAD; see step 4).
+- **Running the tools:** run them from the clone, for example
+  `fcpico/.venv/bin/python fcpico/tools/capture/trace_log.py record -o session.log`.
+- **Serial on Linux:** the user needs access to `/dev/ttyACM*` (the
+  `dialout` group). On Windows, pass `--port COMn` if auto-detection finds
+  nothing.
+
 ### Equipment and settings
 
 - **Connections:**

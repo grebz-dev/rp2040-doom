@@ -30,6 +30,8 @@ try:
     from . import trace_log
     from .decode_video import iter_fields
 except ImportError:  # run as a script
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # fcpico/tools
     import barcode  # type: ignore
     from analyze import align, load_fields, showings  # type: ignore
     import trace_log  # type: ignore

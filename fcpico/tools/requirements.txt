@@ -11,6 +11,7 @@
 #   rp2040-pio-emulator==0.88.0
 #   adafruit-circuitpython-pioasm==1.3.8
 #   unicorn==2.1.4 (tools/perf Cortex-M33 benchmarks)
+#   pyserial==3.5 (tools/capture serial recorder)
 #
 numpy
 pillow
@@ -19,3 +20,4 @@ py65
 rp2040-pio-emulator
 adafruit-circuitpython-pioasm
 unicorn
+pyserial
