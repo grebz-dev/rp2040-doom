@@ -497,6 +497,35 @@ void fcvideo_overlay_episode_menu(uint8_t stream[VRAM_BUF_BYTES_V4],
     }
 }
 
+void fcvideo_trace_cells(uint32_t id, uint8_t generation, bool timeout, uint32_t level_tic,
+                         uint8_t cells[FCVIDEO_TRACE_CELLS]) {
+    unsigned ones = 0;
+    cells[0] = 1;
+    cells[1] = 0;
+    for (int bit = 0; bit < 12; ++bit) cells[2 + bit] = (id >> (11 - bit)) & 1u;
+    for (int bit = 0; bit < 4; ++bit) cells[14 + bit] = (generation >> (3 - bit)) & 1u;
+    cells[18] = timeout ? 1 : 0;
+    for (int bit = 0; bit < 7; ++bit) cells[19 + bit] = (level_tic >> (6 - bit)) & 1u;
+    for (int cell = 2; cell <= 25; ++cell) ones += cells[cell];
+    cells[26] = ones & 1u;
+    cells[27] = 1;
+}
+
+void fcvideo_stamp_trace(uint8_t *stream, uint8_t attr[MBX_ATTR_LEN],
+                         const uint8_t cells[FCVIDEO_TRACE_CELLS]) {
+    const int width = FCVIDEO_TRACE_CELLS * FCVIDEO_TRACE_CELL_WIDTH;
+    for (int bx = FCVIDEO_TRACE_LEFT / 16; bx < (FCVIDEO_TRACE_LEFT + width) / 16; ++bx)
+        attr_set(attr, bx, FCVIDEO_TRACE_TOP / 16, FCVIDEO_HUD_PALETTE);
+    for (int cell = 0; cell < FCVIDEO_TRACE_CELLS; ++cell) {
+        /* HUD sub-palette: entry 0 is the black backdrop, entry 2 is $30. */
+        unsigned color = cells[cell] ? 2u : 0u;
+        int x0 = FCVIDEO_TRACE_LEFT + cell * FCVIDEO_TRACE_CELL_WIDTH;
+        for (int y = FCVIDEO_TRACE_TOP; y < FCVIDEO_TRACE_TOP + FCVIDEO_TRACE_HEIGHT; ++y)
+            for (int x = x0; x < x0 + FCVIDEO_TRACE_CELL_WIDTH; ++x)
+                episode_pixel(stream, x, y, color);
+    }
+}
+
 void fcvideo_convert(fcvideo_t *video,
                      const uint8_t source[FCVIDEO_SRC_HEIGHT * FCVIDEO_SRC_WIDTH],
                      uint8_t stream[VRAM_BUF_BYTES_V2],

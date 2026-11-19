@@ -63,6 +63,24 @@ void fcvideo_build_tables(const uint8_t playpal_rgb[256 * 3],
  * select another set with fcvideo_set_palette without rebuilding err/lut. */
 void fcvideo_build_palette_sets(const fcvideo_preset_t *preset,
                                 uint8_t sets[FCVIDEO_PALETTE_SET_COUNT][MBX_PAL_LEN]);
+/* Hardware-validation frame ID (FCPICO_FRAME_TRACE): a band of black and white
+ * cells in the HUD sub-palette across the top of the 3D view, readable from a
+ * composite capture. tools/capture/barcode.py is the decoder; keep the layout
+ * in step with it. Cells, left to right (1 = white):
+ *   0 start (1), 1 calibration (0), 2..13 picture ID bits 11..0,
+ *   14..17 world generation bits 3..0, 18 world wait timed out,
+ *   19..25 leveltime bits 6..0 (tics since the level, or demo, began),
+ *   26 even parity over 2..25, 27 end (1). */
+#define FCVIDEO_TRACE_CELLS 28
+#define FCVIDEO_TRACE_LEFT 16
+#define FCVIDEO_TRACE_TOP 16
+#define FCVIDEO_TRACE_CELL_WIDTH 8
+#define FCVIDEO_TRACE_HEIGHT 16
+void fcvideo_trace_cells(uint32_t id, uint8_t generation, bool timeout, uint32_t level_tic,
+                         uint8_t cells[FCVIDEO_TRACE_CELLS]);
+/* After conversion (and v4 compaction, which only moves rows below the band). */
+void fcvideo_stamp_trace(uint8_t *stream, uint8_t attr[MBX_ATTR_LEN],
+                         const uint8_t cells[FCVIDEO_TRACE_CELLS]);
 /* base with its world sub-palettes replaced by map->world; the HUD
  * sub-palette, backdrop and shadow lift are kept. */
 void fcvideo_map_preset(const fcvideo_preset_t *base, const fcvideo_map_palette_t *map,

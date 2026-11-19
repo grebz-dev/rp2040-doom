@@ -7,6 +7,7 @@
 #include "i_audio_fcpico.h"
 #include "ui_capture.h"
 #include "level_palette.h"
+#include "doom/doomstat.h"
 #include "doom/m_menu.h"
 #include "w_wad.h"
 #if FCPICO_WORLD_SPRITES
@@ -243,6 +244,10 @@ void fcvideo_frame_end(int palette_num, int video_type)
     fcpico_video_device_poll_bootsel();
     fcbus_device_poll(&bus);
     if (!converter_ready) return;
+    uint32_t frame_wait_us = 0;
+    bool frame_timeout = false;
+    (void)frame_wait_us;
+    (void)frame_timeout;
 #if FCPICO_WORLD_SPRITES
     /* A world generation still being presented holds the back buffer for a
      * few heartbeats. Waiting is cheaper than discarding this rendered frame
@@ -261,7 +266,9 @@ void fcvideo_frame_end(int palette_num, int video_type)
         world_waits++;
         world_wait_us_total += waited;
         if (waited > world_wait_us_max) world_wait_us_max = waited;
-        if (!fcbus_device_back_is_free(&bus)) world_wait_timeouts++;
+        frame_wait_us = waited;
+        frame_timeout = !fcbus_device_back_is_free(&bus);
+        if (frame_timeout) world_wait_timeouts++;
     }
 #endif
     if (!fcbus_device_back_is_free(&bus)) {
@@ -340,6 +347,18 @@ void fcvideo_frame_end(int palette_num, int video_type)
                 frame_palette);
         }
     }
+#if FCPICO_FRAME_TRACE
+    {
+        uint8_t trace_gen = 0;
+#if FCPICO_WORLD_SPRITES
+        trace_gen = world_gen;
+#endif
+        uint8_t cells[FCVIDEO_TRACE_CELLS];
+        fcvideo_trace_cells(converted_frames + 1, trace_gen, frame_timeout,
+                            (uint32_t)leveltime, cells);
+        fcvideo_stamp_trace((uint8_t *)fcbus_device_stream_back(&bus), attributes, cells);
+    }
+#endif
     uint32_t elapsed = time_us_32() - start;
     if (elapsed > conversion_max_us) conversion_max_us = elapsed;
     conversion_total_us += elapsed;
@@ -440,6 +459,38 @@ void fcvideo_frame_end(int palette_num, int video_type)
     fcbus_device_publish(&bus);
     restore_interrupts(saved);
     converted_frames++;
+#if FCPICO_FRAME_TRACE
+    {
+        /* One line per published picture, after publication so it never
+         * delays the bus. tools/capture/trace_log.py parses it. */
+        static uint32_t last_packets, last_tiles, last_abandoned, last_queued;
+        uint32_t packets = 0, tiles = 0, abandoned = 0, queued = 0;
+        unsigned gen = 0, shown = 0, oam = 0, errors = 0;
+#if FCPICO_WORLD_SPRITES
+        packets = world.stats.packets;
+        tiles = world.stats.chr_tiles;
+        abandoned = world.stats.abandoned;
+        queued = world.stats.queued;
+        gen = world_gen;
+        shown = world.shown_gen;
+        oam = world_frame.oam_count;
+        errors = world_errors;
+#endif
+        printf("T id=%lu tic=%d lt=%d us=%llu conv=%lu wait=%lu tmo=%u drops=%lu gen=%u shown=%u "
+               "oam=%u pkt=%lu tiles=%lu q=%lu ab=%lu pal=%d key=%d err=%u\n",
+               (unsigned long)converted_frames, gametic, leveltime,
+               (unsigned long long)time_us_64(), (unsigned long)elapsed,
+               (unsigned long)frame_wait_us, (unsigned)frame_timeout,
+               (unsigned long)dropped_frames, gen, shown, oam,
+               (unsigned long)(packets - last_packets), (unsigned long)(tiles - last_tiles),
+               (unsigned long)(queued - last_queued), (unsigned long)(abandoned - last_abandoned),
+               palette_num, converter_key, errors);
+        last_packets = packets;
+        last_tiles = tiles;
+        last_abandoned = abandoned;
+        last_queued = queued;
+    }
+#endif
 
     if (converted_frames % 60 == 0) {
         const fcbus_stats_t *stats = fcbus_device_stats(&bus);

@@ -242,6 +242,16 @@ void fcvideo_frame_end(int palette_num, int video_type)
 #endif
         fcvideo_convert(&stream_video, composed_frame, stream_frame, stream_attr,
                         frame_count == 0);
+#if FCPICO_FRAME_TRACE
+        {
+            /* The host has no console wait: generation 0, never timed out. */
+            uint8_t cells[FCVIDEO_TRACE_CELLS];
+            size_t mailbox = stream_size == VRAM_BUF_BYTES_V4 ? VRAM_MAILBOX_OFF_V4
+                                                               : VRAM_MAILBOX_OFF_V2;
+            fcvideo_trace_cells(frame_count + 1, 0, false, (uint32_t)leveltime, cells);
+            fcvideo_stamp_trace(stream_frame, stream_frame + mailbox + MBX_ATTR, cells);
+        }
+#endif
         if (snprintf(path, sizeof(path), "%s/frame%06u.bin", dump_stream_dir,
                      frame_count) >= (int)sizeof(path)) {
             fputs("stream path too long\n", stderr);

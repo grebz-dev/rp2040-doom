@@ -134,6 +134,12 @@ the pinned picotool and NESASM into `.build/tools` if they are missing.
   active map set (`key`, 0 for the fixed set) and the last rebuild time.
   `FCPICO_PALETTE_WAD` selects the WAD; it defaults to `FCPICO_WORLD_WAD`, then
   `FCPICO_AUDIO_WAD`. Without a WAD every map uses the fixed set.
+- `FCPICO_FRAME_TRACE=ON` (via `FCPICO_EXTRA_CMAKE_ARGS`, off by default)
+  builds a hardware-validation image. It stamps a frame-ID barcode across the
+  top of the 3D view and prints one serial `T` line per picture.
+  `tools/capture/` records the serial port, decodes the barcode from a
+  composite capture, and joins the two. The procedure is in
+  `docs/hardware-validation-plan.md`.
 - `build_device.sh` generates the profile's console ROM source
   (`tools/build_world_sprite_rom.py` or `tools/build_native_status_probe.py`)
   and builds the hardware-validated device profile: `MinSizeRel`, `FCPICO_DIAGNOSTIC_ENGINE_DELAY=ON`, and a picotool-generated
