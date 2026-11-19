@@ -6,6 +6,7 @@
 #include "fcbus_device.h"
 #include "i_audio_fcpico.h"
 #include "ui_capture.h"
+#include "level_palette.h"
 #include "doom/m_menu.h"
 #include "w_wad.h"
 #if FCPICO_WORLD_SPRITES
@@ -76,6 +77,8 @@ void fcpico_audio_update(void)
 }
 static fcvideo_t converter;
 static bool converter_ready;
+static int converter_key;
+static uint32_t table_build_us;
 static uint8_t err[FCVIDEO_ERR_BYTES];
 static uint8_t palette_sets[FCVIDEO_PALETTE_SET_COUNT][MBX_PAL_LEN];
 static uint8_t attributes[MBX_ATTR_LEN];
@@ -168,6 +171,7 @@ void fcpico_video_device_diag_tick(void)
            (unsigned long)stats.hb_timeouts, (unsigned long)stats.proto_errors,
            (unsigned)converter_ready, (unsigned long)converted_frames,
            (unsigned long)dropped_frames, (unsigned)pending);
+    printf("[palette] key=%d build_us=%lu\n", converter_key, (unsigned long)table_build_us);
     printf("[audio] bank=%u music=%u frames=%lu pairs_max=%u deferred=%lu drops=%lu irq_max_us=%lu\n",
            (unsigned)audio_bank_present, (unsigned)music_playing,
            (unsigned long)audio_stats.frames, (unsigned)audio_stats.pairs_per_frame_max,
@@ -178,17 +182,23 @@ void fcpico_video_device_diag_tick(void)
 
 void fcvideo_line_sink(int y, const uint8_t *line320)
 {
-    if (!converter_ready) {
+    /* A new level (or leaving one) switches the world palettes; the tables
+     * are rebuilt before its first line. */
+    fcvideo_preset_t preset;
+    int preset_key = !converter_ready || y == 0 ? fcpico_level_preset(&preset) : converter_key;
+    if (!converter_ready || preset_key != converter_key) {
         const uint8_t *playpal = W_CacheLumpNum(W_GetNumForName("PLAYPAL"), PU_STATIC);
         /* The 16 KB dither LUT is only read by fcvideo_init, which packs it;
          * build it in the converter's not yet used frame buffer. */
         _Static_assert(sizeof converter.frame >= FCVIDEO_LUT_BYTES, "LUT scratch");
         uint8_t *lut = converter.frame;
         fcvideo_tables_t tables = {err, lut, {0}};
-        fcvideo_build_tables(playpal, &fcvideo_presets[FCVIDEO_DEFAULT_PRESET],
-                             err, lut, tables.palette);
-        fcvideo_build_palette_sets(&fcvideo_presets[FCVIDEO_DEFAULT_PRESET], palette_sets);
+        uint32_t start = time_us_32();
+        fcvideo_build_tables(playpal, &preset, err, lut, tables.palette);
+        fcvideo_build_palette_sets(&preset, palette_sets);
         fcvideo_init(&converter, &tables);
+        table_build_us = time_us_32() - start;
+        converter_key = preset_key;
         converter_ready = true;
     }
     if (y == 0) fcvideo_frame_begin(&converter);

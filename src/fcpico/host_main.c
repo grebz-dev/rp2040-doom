@@ -15,6 +15,7 @@ static bool world_off;
 #endif
 #if FCPICO_WORLD_CAPTURE || FCPICO_WORLD_SPRITES
 #include "ui_capture.h"
+#include "level_palette.h"
 #endif
 #include "i_system.h"
 #include "m_argv.h"
@@ -70,6 +71,7 @@ static uint8_t stream_palettes[FCVIDEO_PALETTE_SET_COUNT][MBX_PAL_LEN];
 static uint8_t stream_frame[VRAM_BUF_BYTES_V4];
 static uint8_t stream_attr[MBX_ATTR_LEN];
 static bool stream_initialized;
+static int stream_key;
 static FILE *pads_file;
 static bool pad_supplied;
 
@@ -184,14 +186,15 @@ void fcvideo_frame_end(int palette_num, int video_type)
     }
     if (dump_stream_dir != NULL) {
         char path[1024];
-        if (!stream_initialized) {
+        fcvideo_preset_t preset;
+        int preset_key = fcpico_level_preset(&preset);
+        if (!stream_initialized || preset_key != stream_key) {
             const uint8_t *playpal = W_CacheLumpNum(W_GetNumForName("PLAYPAL"), PU_STATIC);
             fcvideo_tables_t tables = {stream_err, stream_lut, {0}};
-            fcvideo_build_tables(playpal, &fcvideo_presets[FCVIDEO_DEFAULT_PRESET],
-                                 stream_err, stream_lut, tables.palette);
-            fcvideo_build_palette_sets(&fcvideo_presets[FCVIDEO_DEFAULT_PRESET],
-                                       stream_palettes);
+            fcvideo_build_tables(playpal, &preset, stream_err, stream_lut, tables.palette);
+            fcvideo_build_palette_sets(&preset, stream_palettes);
             fcvideo_init(&stream_video, &tables);
+            stream_key = preset_key;
             stream_initialized = true;
         }
         if (palette_num < 0 || palette_num >= FCVIDEO_PALETTE_SET_COUNT) {

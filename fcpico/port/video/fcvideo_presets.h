@@ -22,6 +22,14 @@ enum {
     FCVIDEO_PRESET_COUNT = 5,
 };
 
+/* One map's three world sub-palettes (every sub-palette but the HUD one, in
+ * order), chosen at build time by tools/map_palettes.py. */
+typedef struct {
+    uint8_t episode;
+    uint8_t map;
+    uint8_t world[3][3];
+} fcvideo_map_palette_t;
+
 /* Values are 2C02 palette indices. The PiPU set was measured on a TV;
  * shadow-detail contrast was confirmed on FC PICO hardware on 2026-09-25. */
 extern const fcvideo_preset_t fcvideo_presets[FCVIDEO_PRESET_COUNT];

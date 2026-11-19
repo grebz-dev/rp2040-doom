@@ -205,6 +205,20 @@ static void test_lut_may_alias_frame_buffer(void) {
     CHECK_MEM(stream, first, sizeof stream);
 }
 
+static void test_map_preset_keeps_hud_palette(void) {
+    const fcvideo_preset_t *base = &fcvideo_presets[FCVIDEO_PRESET_SHARED_HUD];
+    const fcvideo_map_palette_t map = {1, 5, {{0x01, 0x11, 0x21}, {0x02, 0x12, 0x22},
+                                              {0x03, 0x13, 0x23}}};
+    fcvideo_preset_t preset;
+    fcvideo_map_preset(base, &map, &preset);
+    CHECK_MEM(preset.subpalettes[0], map.world[0], 3);
+    CHECK_MEM(preset.subpalettes[1], map.world[1], 3);
+    CHECK_MEM(preset.subpalettes[FCVIDEO_HUD_PALETTE], base->subpalettes[FCVIDEO_HUD_PALETTE], 3);
+    CHECK_MEM(preset.subpalettes[3], map.world[2], 3);
+    CHECK_EQ(preset.backdrop, base->backdrop);
+    CHECK_EQ(preset.shadow_lift, base->shadow_lift);
+}
+
 int main(void) {
     test_solid_frame_and_linear_stride();
     test_vertical_source_rows();
@@ -213,5 +227,6 @@ int main(void) {
     test_native_text_compaction();
     test_episode_menu_uses_full_width_font_without_sprite_rows();
     test_lut_may_alias_frame_buffer();
+    test_map_preset_keeps_hud_palette();
     return ctest_lite_result();
 }
