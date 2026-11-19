@@ -61,19 +61,23 @@ void fcvideo_build_tables(const uint8_t playpal_rgb[256 * 3],
                 target[channel] = source + (preset->shadow_lift
                     ? (source * (255 - source) + 384) / 768 : 0);
             }
-            double best_dist2 = INFINITY;
+            /* Distances are scaled by 16^2 to stay integer (single-precision
+             * M33: doubles here are software). The order, and so the winner,
+             * is that of the oracle's float distances. */
+            uint32_t best_dist2 = UINT32_MAX;
             int best_a = 0, best_b = 0, best_ratio = 0;
             /* Loop order is the Python oracle's flattened (a,b,r) order;
              * a tie therefore keeps its first candidate. */
             for (int a = 0; a < 4; a++) {
+                const uint8_t *rgb_a = nes_rgb[palette[p * 4 + a]];
                 for (int b = 0; b < 4; b++) {
+                    const uint8_t *rgb_b = nes_rgb[palette[p * 4 + b]];
                     for (int ratio = 0; ratio <= 16; ratio++) {
-                        double dist2 = 0;
+                        uint32_t dist2 = 0;
                         for (int channel = 0; channel < 3; channel++) {
-                            double mixed = (nes_rgb[palette[p * 4 + a]][channel] * (16 - ratio)
-                                            + nes_rgb[palette[p * 4 + b]][channel] * ratio) / 16.0;
-                            double diff = mixed - target[channel];
-                            dist2 += diff * diff;
+                            int diff = rgb_a[channel] * (16 - ratio) + rgb_b[channel] * ratio
+                                       - target[channel] * 16;
+                            dist2 += (uint32_t)(diff * diff);
                         }
                         if (dist2 < best_dist2) {
                             best_dist2 = dist2;
@@ -84,7 +88,8 @@ void fcvideo_build_tables(const uint8_t playpal_rgb[256 * 3],
                     }
                 }
             }
-            err[p * 256 + index] = (uint8_t)fmin(255.0, nearbyint(sqrt(best_dist2 / 3.0)));
+            /* best_dist2 / 768 equals the oracle's (best_dist2 / 256) / 3. */
+            err[p * 256 + index] = (uint8_t)fmin(255.0, nearbyint(sqrt(best_dist2 / 768.0)));
             for (int phase = 0; phase < 16; phase++)
                 lut[(p * 256 + index) * 16 + phase] =
                     (uint8_t)(bayer[phase] < best_ratio ? best_b : best_a);
@@ -131,6 +136,15 @@ void fcvideo_build_palette_sets(const fcvideo_preset_t *preset,
             }
             sets[set][i] = best_index;
         }
+    }
+}
+
+void fcvideo_map_preset(const fcvideo_preset_t *base, const fcvideo_map_palette_t *map,
+                        fcvideo_preset_t *out) {
+    *out = *base;
+    for (int p = 0, w = 0; p < 4; p++) {
+        if (p == FCVIDEO_HUD_PALETTE) continue;
+        memcpy(out->subpalettes[p], map->world[w++], 3);
     }
 }
 

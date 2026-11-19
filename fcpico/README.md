@@ -125,6 +125,15 @@ the pinned picotool and NESASM into `.build/tools` if they are missing.
 - The WADs are optional. They enable the generated APU audio bank and the
   native world sprite atlas. Both are generated from your local WAD into build
   outputs and are never committed.
+- With a WAD, each map also gets its own three world background palettes
+  (`FCPICO_MAP_PALETTES`, default `ON`). `tools/map_palettes.py` chooses them
+  from the wall textures and flats the map uses, lit at their sector light and
+  weighted by area. The HUD palette stays fixed. The firmware rebuilds its
+  conversion tables when a level starts or ends (about 23M instructions on the
+  M33, roughly 180 ms at 150 MHz), and the serial `[palette]` line reports the
+  active map set (`key`, 0 for the fixed set) and the last rebuild time.
+  `FCPICO_PALETTE_WAD` selects the WAD; it defaults to `FCPICO_WORLD_WAD`, then
+  `FCPICO_AUDIO_WAD`. Without a WAD every map uses the fixed set.
 - `build_device.sh` generates the profile's console ROM source
   (`tools/build_world_sprite_rom.py` or `tools/build_native_status_probe.py`)
   and builds the hardware-validated device profile: `MinSizeRel`, `FCPICO_DIAGNOSTIC_ENGINE_DELAY=ON`, and a picotool-generated

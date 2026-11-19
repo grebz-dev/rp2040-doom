@@ -24,6 +24,12 @@ applies, and a workaround where one exists.
 - **Picture geometry is unverified.** The 224-line picture displays correctly
   on an NES-001, but exact geometry has not been checked against an
   independent reference.
+- **Per-map background palettes are estimated, and untested on hardware.**
+  They are chosen from each map's textures and flats, not from what the
+  player sees. On the three shareware demo maps they capture 81–100% of the
+  colour-error gain of palettes chosen from the demos' own frames. The table
+  rebuild at each level start and end briefly holds the picture (modelled at
+  about 180 ms).
 - **The HUD tints with damage and pickup flashes.** The status bar shares a
   background palette with the game view, so palette flashes affect it too.
 - **Native UI symbols once dropped out after power cycles.** In early sprite

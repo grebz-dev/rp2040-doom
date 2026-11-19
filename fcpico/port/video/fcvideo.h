@@ -63,6 +63,10 @@ void fcvideo_build_tables(const uint8_t playpal_rgb[256 * 3],
  * select another set with fcvideo_set_palette without rebuilding err/lut. */
 void fcvideo_build_palette_sets(const fcvideo_preset_t *preset,
                                 uint8_t sets[FCVIDEO_PALETTE_SET_COUNT][MBX_PAL_LEN]);
+/* base with its world sub-palettes replaced by map->world; the HUD
+ * sub-palette, backdrop and shadow lift are kept. */
+void fcvideo_map_preset(const fcvideo_preset_t *base, const fcvideo_map_palette_t *map,
+                        fcvideo_preset_t *out);
 void fcvideo_set_palette(fcvideo_t *video, const uint8_t palette[MBX_PAL_LEN]);
 void fcvideo_set_native_status(fcvideo_t *video, bool enabled);
 void fcvideo_set_status_snapshot(fcvideo_t *video, const fcui_status_t *status);
