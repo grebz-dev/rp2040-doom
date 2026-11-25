@@ -798,7 +798,8 @@ void R_ProjectSprite(mobj_t *thing) {
 #if FCPICO_WORLD_SPRITES
     if (fcpico_world_defer(vis, mobj_sprite(thing), mobj_frame(thing),
                            spriteframe_rotates(sprframe) ? (int)rot : 0, lump, flip,
-                           (uint32_t)thing->flags, (uint32_t)(uintptr_t)thing))
+                           (uint32_t)thing->flags, thing->tics == -1,
+                           (uint32_t)(uintptr_t)thing))
         return;
 #endif
 #if FCPICO_WORLD_CAPTURE

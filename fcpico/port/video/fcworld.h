@@ -111,6 +111,8 @@ bool fcworld_atlas_open(fcworld_atlas_t *atlas, const uint8_t *data, uint32_t si
 /** Patch for one engine sprite/frame/rotation (rotation 0 for unrotated frames). */
 bool fcworld_atlas_lookup(const fcworld_atlas_t *atlas, int sprite, int frame, int rotation,
                           bool *flip, fcworld_patch_t *patch);
+/** Lightweight role lookup for admission; zero for an unavailable family. */
+uint8_t fcworld_atlas_family_flags(const fcworld_atlas_t *atlas, unsigned index);
 bool fcworld_atlas_family(const fcworld_atlas_t *atlas, unsigned index, unsigned band,
                           fcworld_family_t *family);
 /** Error between local colour `v` (1..15) and NES colour `colour` at the
