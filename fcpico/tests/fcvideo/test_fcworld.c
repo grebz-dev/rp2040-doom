@@ -423,6 +423,57 @@ static void test_actor_size_hysteresis(void) {
     CHECK(!fcworld_actor_fits(FCWORLD_MAX_TILES, true));
 }
 
+static void test_pickup_clarity_hysteresis(void) {
+    /* A 20x25 patch reaches 16 streamed pixels wide at inverse scale 1.0.
+     * Retreating must pass below 12 pixels before native re-entry. Jitter
+     * around either boundary must not alternate representations. */
+    bool was_native = false;
+    const uint32_t inverse_scales[] = {131072, 87381, 65537, 65536, 65537,
+                                      70000, 87381, 87382, 87381, 65537, 65536};
+    const bool expected[] = {true, true, true, false, false, false,
+                             false, true, true, true, false};
+    for (unsigned i = 0; i < sizeof inverse_scales / sizeof inverse_scales[0]; ++i) {
+        was_native = fcworld_object_needs_native(20, 25, inverse_scales[i], was_native);
+        CHECK_EQ(was_native, expected[i]);
+    }
+    /* Both dimensions matter: wide/short and narrow/tall pickups still need
+     * native clarity. Larger pickups at the same depth stream sooner. */
+    CHECK(fcworld_object_needs_native(80, 8, 65536, false));
+    CHECK(fcworld_object_needs_native(8, 80, 65536, false));
+    CHECK(fcworld_object_needs_native(10, 12, 65536, false));
+    CHECK(!fcworld_object_needs_native(40, 50, 65536, false));
+    CHECK(!fcworld_object_needs_native(40, 50, 131072, true));
+    /* Exact vertical boundaries include the stream's 28/25 scaling. */
+    CHECK(!fcworld_object_needs_native(200, 100, 7 * 65536, true));
+    CHECK(fcworld_object_needs_native(200, 100, 7 * 65536 + 1, true));
+    CHECK(!fcworld_object_needs_native(200, 75, 7 * 65536, false));
+    CHECK(fcworld_object_needs_native(200, 75, 7 * 65536 + 1, false));
+    /* Raw scale, rather than native scale snapping, controls the decision. */
+    CHECK_EQ(fcworld_scale_step(65536, 0), fcworld_scale_step(65537, 0));
+    CHECK(!fcworld_object_needs_native(20, 25, 65536, true));
+    CHECK(fcworld_object_needs_native(20, 25, 65537, true));
+    CHECK(!fcworld_object_needs_native(0, 25, 65536, false));
+    CHECK(!fcworld_object_needs_native(20, 0, 65536, false));
+    CHECK(!fcworld_object_needs_native(20, 25, 0, false));
+    CHECK(!fcworld_object_needs_native(255, 255, 1, true));
+    CHECK(fcworld_object_needs_native(255, 255, UINT32_MAX, false));
+}
+
+static void test_pickup_clarity_ignores_clipping(void) {
+    fcworld_projection_t p = {0};
+    p.patch.width = p.patch.height = 40;
+    p.xiscale = p.iscale = 65536;
+    p.view_width = 320; p.view_height = 168;
+    const int positions[][2] = {{100, 60}, {310, 158}};
+    for (unsigned i = 0; i < 2; ++i) {
+        p.x1 = positions[i][0]; p.centery = positions[i][1];
+        fcworld_box_t box;
+        CHECK(fcworld_bounds(&p, &box));
+        if (i == 1) CHECK(fcworld_actor_fits(fcworld_box_tiles(&box), false));
+        CHECK(!fcworld_object_needs_native(p.patch.width, p.patch.height, p.iscale, true));
+    }
+}
+
 static void limit_actor(fcworld_frame_t *f, uint32_t id, unsigned tiles, unsigned seed,
                         int x, int y) {
     unsigned first = f->oam_count;
@@ -578,6 +629,18 @@ static void test_atlas_v2_lookup_and_family(void) {
     CHECK_EQ(family.select[1 * 64 + 0x16], 0);
     CHECK_EQ(fcworld_family_error(&family, 2, 0x16), 0);
     CHECK_EQ(fcworld_family_error(&family, 2, 0x17), 100);
+    CHECK_EQ(fcworld_atlas_family_flags(&atlas, 0), family.flags);
+    CHECK_EQ(fcworld_atlas_family_flags(&atlas, atlas.family_count), 0);
+    /* Scenery roles survive atlas parsing; static decorations must not be
+     * confused with enemy-family map corpses by admission. */
+    unsigned family_off = (unsigned)(family.candidates - atlas.data);
+    atlas_bytes[family_off + 6] = FCWORLD_FAMILY_SCENERY;
+    CHECK_EQ(fcworld_atlas_family_flags(&atlas, 0), FCWORLD_FAMILY_SCENERY);
+    CHECK(fcworld_atlas_family(&atlas, 0, 0, &family));
+    CHECK(!(family.flags & FCWORLD_FAMILY_ENEMY));
+    atlas_bytes[family_off + 6] = FCWORLD_FAMILY_ENEMY;
+    CHECK(fcworld_atlas_family_flags(&atlas, 0) & FCWORLD_FAMILY_ENEMY);
+    atlas_bytes[family_off + 6] = 0;
     atlas_bytes[4] = 2;  /* older formats are refused */
     CHECK(!fcworld_atlas_open(&atlas, atlas_bytes, sizeof atlas_bytes));
     atlas_bytes[4] = FCWORLD_ATLAS_VERSION;
@@ -870,6 +933,8 @@ int main(void) {
     test_abandoned_generations_never_show();
     test_scale_step_hysteresis();
     test_actor_size_hysteresis();
+    test_pickup_clarity_hysteresis();
+    test_pickup_clarity_ignores_clipping();
     test_frame_limit_reuses_previous_art();
     test_flipped_cache_reuse();
     test_core_gate_matches_console_generation();

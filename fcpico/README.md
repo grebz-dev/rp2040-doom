@@ -248,6 +248,22 @@ Set `DOTNET_ROOT` if Mesen cannot find its runtime.
   favour of a better one, so actors seen first no longer displace live enemies.
   Death animations remain eligible for native sprites, but their terminal
   corpse pose (`tics == -1`) and map-placed dead bodies stay streamed.
+  Pickups and scenery use native sprites for far-object clarity and return to
+  streamed rendering once both projected dimensions reach 16 output pixels.
+  After switching, either dimension must fall below 12 pixels to request native
+  rendering again. These initial thresholds are named
+  `FCWORLD_OBJECT_STREAM_PIXELS` / `FCWORLD_OBJECT_NATIVE_PIXELS` in
+  `port/video/fcworld.h` for tuning against gameplay captures. The check uses
+  full patch dimensions and raw camera scale, including the stream's 4/5
+  horizontal and 28/25 vertical mapping, independently of screen clipping or
+  native scale snapping, and runs before native scale/layout, admission,
+  rasterization, palette and tile work (the `clarity` reason). Net frame-time
+  savings need to be measured on device. Scenery includes barrels (normal and
+  burning), lamps, candles, torches, pillars, trees, stalagmites/stalactites,
+  and hanging or mounted props; enemies and pickups take priority over it when
+  tile/OAM/scanline budgets fill. Barrel explosions and loose floor remains stay
+  streamed, and families missing from the IWAD fall back to the stream. Rebuild
+  the world atlas and combined UF2 from your WAD to enable the expanded scope.
 - `host_main.c` is the SDL-free host entry point. The pico-sdk functions the
   host platform lacks (multicore, alarms, hard assertions) come from
   `fcpico/sim/host_shim/`.

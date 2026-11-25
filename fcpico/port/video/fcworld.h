@@ -95,6 +95,7 @@ typedef struct {
 } fcworld_family_t;
 #define FCWORLD_FAMILY_ENEMY 0x01
 #define FCWORLD_FAMILY_EXCLUSIVE 0x02
+#define FCWORLD_FAMILY_SCENERY 0x04
 
 typedef struct {
     const uint8_t *data;
@@ -162,6 +163,18 @@ typedef struct {
 } fcworld_projection_t;
 
 typedef struct { int16_t x, y; uint8_t w, h; } fcworld_box_t;
+
+/* Initial clarity thresholds in streamed output pixels. Pickups and scenery
+ * switch to streamed when BOTH dimensions reach 16 pixels; once streamed,
+ * they request native again only when EITHER dimension falls below 12 pixels.
+ * Tune against gameplay captures; these are independent of native tile cost. */
+#define FCWORLD_OBJECT_STREAM_PIXELS 16
+#define FCWORLD_OBJECT_NATIVE_PIXELS 12
+/** Cheap, unclipped projected-size check using patch dimensions and raw 16.16
+ *  inverse scale. Accounts for the stream's 4/5 horizontal and 28/25 vertical
+ *  mapping, without quantising, laying out or rasterizing a native sprite. */
+bool fcworld_object_needs_native(unsigned width, unsigned height, uint32_t iscale,
+                                  bool was_native);
 
 /** Native bounding box of the anchored, scale-quantised patch clipped to the
  *  view; false when nothing is on screen. */

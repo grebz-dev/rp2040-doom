@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Native NES sprites for admitted enemies and pickups.
+ * Native NES sprites for admitted enemies, pickups and scenery.
  *
  * R_ProjectSprite hands eligible actors here instead of inserting them into the
  * PD column lists. After BSP traversal they are ranked (live monsters, then
- * pickups, then falling corpses; nearest first) and admitted whole while the frame's
+ * pickups, then scenery and falling corpses; nearest first) and admitted whole while the frame's
  * tile, OAM and scanline budgets allow. Rejected actors are drawn exactly as
  * before. Admitted actors never clip geometry, so the background behind them
  * stays intact; pd_end_frame later rasterizes them against the resolved PD
@@ -136,7 +136,8 @@ static fcpico_world_role_t classify(uint8_t family_flags, uint32_t flags) {
     if (family_flags & FCWORLD_FAMILY_ENEMY)
         return (flags & (MF_CORPSE | MF_DECORATION)) ? FCPICO_WORLD_ROLE_DYING
                                                     : FCPICO_WORLD_ROLE_ENEMY;
-    return FCPICO_WORLD_ROLE_PICKUP;
+    return (family_flags & FCWORLD_FAMILY_SCENERY) ? FCPICO_WORLD_ROLE_SCENERY
+                                                   : FCPICO_WORLD_ROLE_PICKUP;
 }
 
 static int compare_candidates(const void *a, const void *b);
@@ -176,19 +177,25 @@ bool fcpico_world_defer(const vissprite_t *vis, int sprite, int frame, int rotat
      * (MF_DECORATION) stay streamed. */
     if (role == FCPICO_WORLD_ROLE_DYING && (settled || (flags & MF_DECORATION)))
         return streamed(role, FCPICO_WORLD_STREAM_REMAINS);
+    uint8_t previous_light;
+    uint32_t previous = previous_step(id, &previous_light);
+    uint32_t iscale = (uint32_t)abs(vis->xiscale) >> detailshift;
+    /* Readable objects return to the stream before native scale/layout,
+     * admission, raster or tile work. */
+    if ((role == FCPICO_WORLD_ROLE_PICKUP || role == FCPICO_WORLD_ROLE_SCENERY) &&
+        !fcworld_object_needs_native(p.patch.width, p.patch.height, iscale, previous != 0))
+        return streamed(role, FCPICO_WORLD_STREAM_CLARITY);
     p.x1 = (int16_t)vis->x1;
     p.x2 = (int16_t)vis->x2;
     p.startfrac = vis->startfrac;
     p.xiscale = vis->xiscale;
     p.texturemid = vis->texturemid;
-    p.iscale = (uint32_t)abs(vis->xiscale) >> detailshift;
+    p.iscale = iscale;
     p.centery = (int16_t)centery;
     p.view_x = (int16_t)viewwindowx;
     p.view_y = (int16_t)viewwindowy;
     p.view_width = (int16_t)viewwidth;
     p.view_height = (int16_t)viewheight;
-    uint8_t previous_light;
-    uint32_t previous = previous_step(id, &previous_light);
     p.scale_step = fcworld_scale_step(p.iscale, previous);
     p.light = FCPICO_WORLD_LIGHTING ? fcworld_light_band(level, previous_light) : 0;
     fcworld_box_t box;
@@ -209,16 +216,18 @@ bool fcpico_world_defer(const vissprite_t *vis, int sprite, int frame, int rotat
 }
 
 void fcpico_world_print_reasons(void) {
-    static const char *const roles[FCPICO_WORLD_ROLES] = {"unscoped", "enemy", "dying", "pickup"};
+    static const char *const roles[FCPICO_WORLD_ROLES] = {
+        "unscoped", "enemy", "dying", "pickup", "scenery"};
     for (unsigned r = 0; r < FCPICO_WORLD_ROLES; ++r) {
         const uint32_t *s = stats.streamed[r];
         printf("world_role %s admitted=%lu lookup=%lu mismatch=%lu effect=%lu remains=%lu "
-               "oversize=%lu full=%lu budget=%lu\n", roles[r],
+               "clarity=%lu oversize=%lu full=%lu budget=%lu\n", roles[r],
                (unsigned long)stats.admitted_role[r],
                (unsigned long)s[FCPICO_WORLD_STREAM_LOOKUP],
                (unsigned long)s[FCPICO_WORLD_STREAM_MISMATCH],
                (unsigned long)s[FCPICO_WORLD_STREAM_EFFECT],
                (unsigned long)s[FCPICO_WORLD_STREAM_REMAINS],
+               (unsigned long)s[FCPICO_WORLD_STREAM_CLARITY],
                (unsigned long)s[FCPICO_WORLD_STREAM_OVERSIZE],
                (unsigned long)s[FCPICO_WORLD_STREAM_FULL],
                (unsigned long)s[FCPICO_WORLD_STREAM_BUDGET]);

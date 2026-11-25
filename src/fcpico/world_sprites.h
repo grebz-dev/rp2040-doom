@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* Native NES sprites for admitted enemies and pickups. */
+/* Native NES sprites for admitted enemies, pickups and scenery. */
 #ifndef FCPICO_WORLD_SPRITES_H
 #define FCPICO_WORLD_SPRITES_H
 
@@ -20,6 +20,7 @@ typedef enum {
     FCPICO_WORLD_ROLE_ENEMY,     /**< live monster */
     FCPICO_WORLD_ROLE_DYING,     /**< monster death animation, or its settled remains */
     FCPICO_WORLD_ROLE_PICKUP,
+    FCPICO_WORLD_ROLE_SCENERY,
     FCPICO_WORLD_ROLES
 } fcpico_world_role_t;
 
@@ -29,6 +30,7 @@ typedef enum {
     FCPICO_WORLD_STREAM_MISMATCH,  /**< atlas entry disagrees with engine sprite metadata */
     FCPICO_WORLD_STREAM_EFFECT,    /**< fuzz, colour translation or fixed colormap */
     FCPICO_WORLD_STREAM_REMAINS,   /**< settled corpse or map-placed body */
+    FCPICO_WORLD_STREAM_CLARITY,   /**< pickup/scenery already readable when streamed */
     FCPICO_WORLD_STREAM_OVERSIZE,  /**< exceeds the per-actor tile budget on its own */
     FCPICO_WORLD_STREAM_FULL,      /**< candidate list full */
     FCPICO_WORLD_STREAM_BUDGET,    /**< frame tile/OAM/scanline budget spent at admission */

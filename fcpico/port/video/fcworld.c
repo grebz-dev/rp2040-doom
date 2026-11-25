@@ -346,6 +346,16 @@ static bool layout(const fcworld_projection_t *p, layout_t *l) {
     return l->col_lo <= l->col_hi && l->row_lo <= l->row_hi;
 }
 
+bool fcworld_object_needs_native(unsigned width, unsigned height, uint32_t iscale,
+                                  bool was_native) {
+    if (width == 0 || height == 0 || iscale == 0) return false;
+    unsigned threshold = was_native ? FCWORLD_OBJECT_STREAM_PIXELS : FCWORLD_OBJECT_NATIVE_PIXELS;
+    /* Compare full projected dimensions to the threshold without divisions.
+     * Screen clipping and native scale snapping must not affect clarity. */
+    return (uint64_t)width * 65536u * 4u < (uint64_t)threshold * iscale * 5u ||
+           (uint64_t)height * 65536u * 28u < (uint64_t)threshold * iscale * 25u;
+}
+
 static int layout_column(const layout_t *l, int n) {
     int64_t r = n - l->ax;
     if (l->flip) r = -r - 1;
