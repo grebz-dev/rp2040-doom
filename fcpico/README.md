@@ -239,7 +239,15 @@ Set `DOTNET_ROOT` if Mesen cannot find its runtime.
 - `world_sprites.c` defers eligible enemies and pickups during projection,
   admits them after BSP, and rasterizes them against the renderer's depth
   information. Admitted actors stay out of the background stream; the rest are
-  streamed as before.
+  streamed as before. Every native-or-streamed decision is made in
+  `fcpico_world_defer` and `fcpico_world_admit`: an actor's role (enemy, dying,
+  pickup, or unscoped) comes from its atlas family, refined by engine state for
+  monster families, and every streamed actor is counted by role and reason
+  (`world_role` lines on host and device serial). When the 32-entry candidate
+  list fills during BSP, the lowest-ranked, farthest candidate is streamed in
+  favour of a better one, so actors seen first no longer displace live enemies.
+  Death animations remain eligible for native sprites, but their terminal
+  corpse pose (`tics == -1`) and map-placed dead bodies stay streamed.
 - `host_main.c` is the SDL-free host entry point. The pico-sdk functions the
   host platform lacks (multicore, alarms, hard assertions) come from
   `fcpico/sim/host_shim/`.

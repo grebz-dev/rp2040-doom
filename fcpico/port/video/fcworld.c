@@ -120,6 +120,11 @@ bool fcworld_atlas_open(fcworld_atlas_t *atlas, const uint8_t *data, uint32_t si
     return true;
 }
 
+uint8_t fcworld_atlas_family_flags(const fcworld_atlas_t *atlas, unsigned index) {
+    if (atlas->data == NULL || index >= atlas->family_count) return 0;
+    return atlas->data[atlas_tables(atlas).families + index * FAMILY_RECORD + 6];
+}
+
 bool fcworld_atlas_family(const fcworld_atlas_t *atlas, unsigned index, unsigned band,
                           fcworld_family_t *family) {
     if (atlas->data == NULL || index >= atlas->family_count || band >= FCWORLD_LIGHT_BANDS)
